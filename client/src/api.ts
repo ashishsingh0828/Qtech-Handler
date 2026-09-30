@@ -27,30 +27,50 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   return data as T;
 }
 
-export async function uploadWorkbook(file: File, datasetId?: string): Promise<{ dataset: { id: string; inserted: number; updated: number; duplicates: number } }> {
+export interface ImportResult {
+  dataset: {
+    id: string;
+    inserted: number;
+    updated: number;
+    duplicates: number;
+    rowCount: number;
+    columnCount: number;
+    groups: number;
+  };
+}
+
+export async function uploadWorkbook(file: File, datasetId?: string): Promise<ImportResult> {
   const query = datasetId ? `?datasetId=${encodeURIComponent(datasetId)}` : '';
-  const response = await fetch(`/api/datasets/import${query}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
-    body: file,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api/datasets/import${query}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) },
+      body: file,
+    });
+  } catch {
+    throw new ApiError(0, 'Import could not reach the API on port 5000. Start the server and try again.', 'NETWORK', {});
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const payload = data as { error?: string; code?: string };
-    throw new ApiError(response.status, payload.error || 'Import failed', payload.code || 'IMPORT', data as Record<string, unknown>);
+    const fallback = response.status === 413 ? 'This file is larger than 25 MB.' : 'Import failed';
+    throw new ApiError(response.status, payload.error || fallback, payload.code || 'IMPORT', data as Record<string, unknown>);
   }
-  return data as { dataset: { id: string; inserted: number; updated: number; duplicates: number } };
+  return data as ImportResult;
 }
 
 export async function downloadExcel(path: string, filename: string): Promise<void> {
   const response = await fetch(path, { credentials: 'include' });
   if (!response.ok) throw new ApiError(response.status, 'Export failed', 'EXPORT', {});
   const blob = await response.blob();
+  const header = response.headers.get('Content-Disposition') || '';
+  const named = header.match(/filename="([^"]+)"/);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = filename;
+  link.download = named?.[1] || filename;
   link.click();
   URL.revokeObjectURL(url);
 }

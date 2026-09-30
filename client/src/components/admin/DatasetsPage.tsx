@@ -25,13 +25,18 @@ export default function DatasetsPage() {
       <PageHeader title="Datasets" subtitle="Shared workbooks">
         {user && hasPermission(user.role, 'uploadExcel') ? <button type="button" className="btn btn-primary" onClick={() => fileRef.current?.click()}>Upload</button> : null}
       </PageHeader>
-      <input ref={fileRef} hidden type="file" accept=".xlsx,.xls" onChange={(event) => {
+      <input ref={fileRef} hidden type="file" accept=".xlsx,.xls,.csv" onChange={(event) => {
         const file = event.target.files?.[0];
+        event.target.value = '';
         if (!file) return;
+        if (file.size > 25 * 1024 * 1024) {
+          toast.push('This file is larger than 25 MB.');
+          return;
+        }
         uploadWorkbook(file).then((result) => {
           setDatasetId(result.dataset.id);
           queryClient.invalidateQueries({ queryKey: ['datasets'] });
-          toast.push(`Imported ${result.dataset.inserted} new and updated ${result.dataset.updated}.`);
+          toast.push(`Imported ${result.dataset.rowCount} rows x ${result.dataset.columnCount} columns in ${result.dataset.groups} groups.`);
           navigate('/records');
         }).catch((error: Error) => toast.push(error.message));
       }} />

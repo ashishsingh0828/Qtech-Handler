@@ -160,10 +160,15 @@ export default function RecordsPage() {
         const file = event.target.files?.[0];
         event.target.value = '';
         if (!file) return;
+        if (file.size > 25 * 1024 * 1024) {
+          toast.push('This file is larger than 25 MB.');
+          return;
+        }
         uploadWorkbook(file, datasetId).then((result) => {
           queryClient.invalidateQueries({ queryKey: ['rows', datasetId] });
           queryClient.invalidateQueries({ queryKey: ['dataset', datasetId] });
-          toast.push(`Imported ${result.dataset.inserted} new and updated ${result.dataset.updated}.`);
+          queryClient.invalidateQueries({ queryKey: ['datasets'] });
+          toast.push(`Imported ${result.dataset.rowCount} rows x ${result.dataset.columnCount} columns in ${result.dataset.groups} groups.`);
         }).catch((error: Error) => toast.push(error.message));
       }} />
       <div className="mb-3 flex gap-2 overflow-x-auto">
@@ -216,7 +221,7 @@ export default function RecordsPage() {
                             defaultValue={cellText(row, column.key) === '—' ? '' : cellText(row, column.key)}
                             onBlur={(event) => { void saveCell(row, column.key, event.target.value); }}
                           />
-                        ) : cellText(row, column.key)}
+                        ) : <span className={mutedValue(row.data[column.key]) ? 'text-muted' : undefined}>{cellText(row, column.key)}</span>}
                         {cellState[`${row.id}:${column.key}`] ? <span className="ml-1 text-[11px] text-muted">{cellState[`${row.id}:${column.key}`]}</span> : null}
                         {row.version > 1 && !cellState[`${row.id}:${column.key}`] ? <span className="ml-1 text-[11px] text-muted">Modified</span> : null}
                       </td>
@@ -285,9 +290,14 @@ export default function RecordsPage() {
   );
 }
 
+function mutedValue(value: unknown): boolean {
+  return typeof value === 'string' && /^(na|n\/a|n\.a\.?|-|—)$/i.test(value.trim());
+}
+
 function cellText(row: RecordRow, key: string): string {
   if (key === 'next_due_pms') return row.derived.nextDuePms.label;
   const value = row.data[key];
   if (value == null || value === '') return '—';
+  if (key === 'total_pms' && typeof value === 'number') return String(Math.round(value));
   return String(value);
 }

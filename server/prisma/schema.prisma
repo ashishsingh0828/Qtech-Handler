@@ -53,6 +53,7 @@ model ColumnDefinition {
   key          String
   label        String
   groupKey     String  @map("group_key")
+  groupTitle   String? @map("group_title")
   semanticTag  String? @map("semantic_tag")
   dataType     String  @map("data_type")
   displayOrder Int     @map("display_order")

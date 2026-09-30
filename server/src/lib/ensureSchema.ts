@@ -124,12 +124,14 @@ const STATEMENTS = [
     key TEXT NOT NULL,
     label TEXT NOT NULL,
     group_key TEXT NOT NULL,
+    group_title TEXT,
     semantic_tag TEXT,
     data_type TEXT NOT NULL,
     display_order INTEGER NOT NULL,
     is_system BOOLEAN NOT NULL DEFAULT FALSE,
     UNIQUE (dataset_id, key)
   )`,
+  `ALTER TABLE column_definitions ADD COLUMN IF NOT EXISTS group_title TEXT`,
   `CREATE INDEX IF NOT EXISTS column_definitions_order ON column_definitions (dataset_id, display_order)`,
   `CREATE TABLE IF NOT EXISTS service_calls (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

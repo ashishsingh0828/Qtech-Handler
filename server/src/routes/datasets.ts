@@ -2,18 +2,31 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.ts';
 import { asyncHandler, assertUuid, HttpError } from '../lib/http.ts';
 import { requirePermission, requireUser } from '../middleware/auth.ts';
-import { buildCsv, buildWorkbook, parseWorkbook, type ParsedColumn } from '../lib/excel.ts';
+import { buildCsv, buildWorkbook, parseWorkbook, type ExportCall, type ParsedColumn } from '../lib/excel.ts';
 import { jsonObject } from '../lib/ensureSchema.ts';
 import { asCells, equipmentOf, indexesOf } from '../lib/present.ts';
 import { mergeKey } from '../lib/records.ts';
 import { emit } from '../lib/notify.ts';
 import { todayInZone } from '../../../shared/dates.ts';
 import { env } from '../config/env.ts';
-import { isServerField, normalizeGroupKey, semanticTagFor } from '../../../shared/permissions.ts';
+import { GROUP_CATALOG, isServerField, normalizeGroupKey, semanticTagFor } from '../../../shared/permissions.ts';
+import type { Prisma } from '@prisma/client';
 import type { CellMap } from '../../../shared/metrics.ts';
 
 const router = Router();
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 router.use(requireUser);
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += size) batches.push(items.slice(index, index + size));
+  return batches;
+}
+
+function groupTitleFor(key: string, stored: string | null | undefined): string {
+  if (stored && stored.trim()) return stored;
+  return GROUP_CATALOG.find((group) => group.key === key)?.title || key;
+}
 
 router.get('/', asyncHandler(async (_req, res) => {
   const datasets = await prisma.dataset.findMany({ orderBy: { updatedAt: 'desc' } });
@@ -73,6 +86,14 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
   if (!req.user) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from([]);
   if (!buffer.length) throw new HttpError(400, 'Upload an Excel workbook.', 'VALIDATION');
+  if (buffer.length > MAX_UPLOAD_BYTES) throw new HttpError(400, 'This file is larger than 25 MB.', 'TOO_LARGE');
+  let filename = 'workbook.xlsx';
+  try {
+    filename = decodeURIComponent(String(req.get('x-filename') || 'workbook.xlsx')).slice(0, 240);
+  } catch {
+    filename = 'workbook.xlsx';
+  }
+  if (!/\.(xlsx|xls|csv)$/i.test(filename)) throw new HttpError(400, 'Upload an Excel file (.xlsx or .xls).', 'WRONG_TYPE');
   let parsed;
   try {
     parsed = parseWorkbook(buffer);
@@ -81,9 +102,9 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
     const code = error instanceof Error && 'code' in error ? String((error as { code?: string }).code) : 'IMPORT';
     throw new HttpError(status || 400, error instanceof Error ? error.message : 'Import failed.', code || 'IMPORT');
   }
-  const filename = decodeURIComponent(String(req.get('x-filename') || 'workbook.xlsx')).slice(0, 240);
-  const name = String(req.body && !Buffer.isBuffer(req.body) ? req.body.name : '') || filename.replace(/\.(xlsx|xls|csv)$/i, '') || 'Workbook';
+  const name = filename.replace(/\.(xlsx|xls|csv)$/i, '') || 'Workbook';
   const datasetId = typeof req.query.datasetId === 'string' ? req.query.datasetId : '';
+  if (datasetId) assertUuid(datasetId);
   const today = todayInZone(env.timezone);
   const summary = await prisma.$transaction(async (tx) => {
     let dataset = datasetId
@@ -102,6 +123,7 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
               key: column.key,
               label: column.label,
               groupKey: column.groupKey,
+              groupTitle: column.groupTitle,
               semanticTag: column.semanticTag,
               dataType: column.dataType,
               displayOrder: column.displayOrder,
@@ -122,6 +144,7 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
             key: column.key,
             label: column.label,
             groupKey: column.groupKey,
+            groupTitle: column.groupTitle,
             semanticTag: column.semanticTag,
             dataType: column.dataType,
             displayOrder: current.columns.length + index,
@@ -146,6 +169,7 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
     let updated = 0;
     let duplicates = 0;
     let position = existing.reduce((max, row) => Math.max(max, row.position), 0);
+    const inserts: Prisma.RowCreateManyInput[] = [];
     for (const record of parsed.records) {
       const key = mergeKey(record.serialNo, record.customerName, record.equipmentName);
       const matches = key.kind === 'serial'
@@ -176,20 +200,21 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
         const suspect = matches.length > 1;
         if (suspect) duplicates += 1;
         const indexed = indexesOf(record.data);
-        await tx.row.create({
-          data: {
-            datasetId: dataset.id,
-            position,
-            version: 1,
-            serialNo: indexed.serialNo,
-            customerName: indexed.customerName,
-            data: jsonObject(record.data),
-            importedData: jsonObject(record.data),
-            isDuplicateSuspect: suspect,
-          },
+        inserts.push({
+          datasetId: dataset.id,
+          position,
+          version: 1,
+          serialNo: indexed.serialNo,
+          customerName: indexed.customerName,
+          data: jsonObject(record.data),
+          importedData: jsonObject(record.data),
+          isDuplicateSuspect: suspect,
         });
         inserted += 1;
       }
+    }
+    for (const batch of chunks(inserts, 400)) {
+      await tx.row.createMany({ data: batch });
     }
     const rowCount = await tx.row.count({ where: { datasetId: dataset.id } });
     const columnCount = await tx.columnDefinition.count({ where: { datasetId: dataset.id } });
@@ -205,8 +230,8 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
         changes: jsonObject({ filename, inserted, updated, duplicates }),
       },
     });
-    return { id: dataset.id, name: dataset.name, inserted, updated, duplicates, rowCount, columnCount };
-  });
+    return { id: dataset.id, name: dataset.name, inserted, updated, duplicates, rowCount, columnCount, groups: parsed.groups.length };
+  }, { timeout: 120_000, maxWait: 20_000 });
   emit('dataset.imported', summary.id, null, req.user.id);
   res.json({ dataset: summary, today });
 }));
@@ -225,7 +250,7 @@ router.get('/:id/export', asyncHandler(async (req, res) => {
       key: column.key,
       label: column.label,
       groupKey: column.groupKey,
-      groupTitle: column.groupKey,
+      groupTitle: groupTitleFor(column.groupKey, column.groupTitle),
       dataType: column.dataType === 'date' || column.dataType === 'number' ? column.dataType : 'text',
       semanticTag: column.semanticTag,
       displayOrder: column.displayOrder,
@@ -233,14 +258,31 @@ router.get('/:id/export', asyncHandler(async (req, res) => {
     }));
   const cells = dataset.rows.map((row) => asCells(row.data));
   const stem = dataset.name.replace(/[^\w.-]+/g, '_') || 'dataset';
+  const day = todayInZone(env.timezone);
   if (req.query.format === 'csv') {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${stem}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${stem}_${day}.csv"`);
     res.send(buildCsv(columns, cells));
     return;
   }
-  const buffer = buildWorkbook(columns, cells);
-  const filename = `${stem}.xlsx`;
+  const calls = await prisma.serviceCall.findMany({
+    where: { row: { datasetId: dataset.id } },
+    include: { row: { select: { position: true, serialNo: true, customerName: true } } },
+    orderBy: { reportedAt: 'desc' },
+  });
+  const exportCalls: ExportCall[] = calls.map((call) => ({
+    position: call.row.position,
+    customerName: call.row.customerName,
+    serialNo: call.row.serialNo,
+    type: call.type,
+    description: call.description,
+    status: call.status,
+    reportedAt: call.reportedAt,
+    resolvedAt: call.resolvedAt,
+    note: call.note,
+  }));
+  const buffer = buildWorkbook(columns, cells, exportCalls);
+  const filename = `${stem}_${day}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(buffer);

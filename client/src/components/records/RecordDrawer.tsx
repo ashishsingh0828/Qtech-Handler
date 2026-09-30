@@ -98,7 +98,7 @@ export default function RecordDrawer({ datasetId, rowId, columns, onClose }: {
                     <Accordion.Content className="px-1 py-3">
                       {group.key === 'schedule_services' && row ? (
                         <div className="mb-3">
-                          <div className="text-[13px] text-ink2">Total PMS {String(row.data.total_pms || row.derived.pmsProgress.total)} · {row.derived.pmsProgress.done} done</div>
+                          <div className="text-[13px] text-ink2">Total PMS {typeof row.data.total_pms === 'number' ? Math.round(row.data.total_pms) : String(row.data.total_pms || row.derived.pmsProgress.total)} · {row.derived.pmsProgress.done} done</div>
                           <ol className="mt-3 space-y-3">
                             {row.derived.visits.map((visit) => (
                               <li key={visit.index} className="min-w-0 border-l border-hairline pl-3">
