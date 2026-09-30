@@ -193,7 +193,12 @@ interface LegacySchema {
 
 export async function ensureSchema(): Promise<void> {
   for (const statement of STATEMENTS) {
-    await prisma.$executeRawUnsafe(statement);
+    try {
+      await prisma.$executeRawUnsafe(statement);
+    } catch (error) {
+      if (statement.includes('CREATE EXTENSION')) continue;
+      throw error;
+    }
   }
   await prisma.$executeRawUnsafe(`
     DO $$

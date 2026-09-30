@@ -3,10 +3,10 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(here, '../../../.env') });
-dotenv.config({ path: path.resolve(here, '../../.env') });
+dotenv.config({ path: path.resolve(here, '../../../.env'), override: true });
+dotenv.config({ path: path.resolve(here, '../../.env'), override: true });
 
-export const LOCAL_DATABASE_URL = 'postgres://postgres:postgres@localhost:5432/qtech_data_management';
+export const LOCAL_DATABASE_URL = 'postgres://postgres:postgres@localhost:2001/qtech_data_management';
 
 export const env = {
   port: Number(process.env.PORT || 4000),

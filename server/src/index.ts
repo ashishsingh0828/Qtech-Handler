@@ -63,6 +63,9 @@ app.use(errorMiddleware);
 
 ensureSchema()
   .then(() => bootstrapPresetUsers())
+  .catch((error: unknown) => {
+    console.error('Startup schema failed', error);
+  })
   .then(() => {
     startJobs();
     const server = app.listen(env.port, () => {

@@ -21,7 +21,18 @@ export function asyncHandler(
   };
 }
 
-export function errorMiddleware(error: unknown, _req: Request, res: Response, _next: NextFunction): void {
+export function errorMiddleware(error: unknown, req: Request, res: Response, _next: NextFunction): void {
+  const pathName = req.originalUrl.split('?')[0];
+  if (pathName === '/api/auth/me') {
+    res.status(401).json({ user: null });
+    return;
+  }
+  if (pathName === '/api/auth/enter' || pathName === '/api/auth/login') {
+    const message = error instanceof Error ? error.message : 'Sign in failed';
+    const status = error instanceof HttpError ? error.status : 503;
+    res.status(status).json({ error: message, code: error instanceof HttpError ? error.code : 'UNAVAILABLE' });
+    return;
+  }
   if (error instanceof HttpError) {
     res.status(error.status).json({ error: error.message, code: error.code, ...error.details });
     return;
