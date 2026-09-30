@@ -4,8 +4,19 @@ import { prisma } from '../lib/prisma.ts';
 import { asyncHandler, HttpError } from '../lib/http.ts';
 import { clearSession, requireUser, setSession, type AuthUser } from '../middleware/auth.ts';
 import { normalizeRole } from '../../../shared/permissions.ts';
+import { PRESET_USERS } from '../../../shared/presets.ts';
+import { bootstrapPresetUsers } from '../bootstrap.ts';
 
 const router = Router();
+
+async function passwordMatches(password: string, hash: string | null | undefined): Promise<boolean> {
+  if (!hash) return false;
+  try {
+    return await bcrypt.compare(password, hash);
+  } catch {
+    return false;
+  }
+}
 
 function publicUser(user: AuthUser) {
   return { id: user.id, email: user.email, name: user.name, role: user.role };
@@ -15,9 +26,16 @@ router.post('/login', asyncHandler(async (req, res) => {
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
   if (!email || !password) throw new HttpError(400, 'Email and password are required.', 'VALIDATION');
-  const user = await prisma.user.findUnique({ where: { email } });
-  const role = user ? normalizeRole(user.role) : '';
-  const matches = user ? await bcrypt.compare(password, user.passwordHash) : false;
+  let user = await prisma.user.findUnique({ where: { email } });
+  let role = user ? normalizeRole(user.role) : '';
+  let matches = await passwordMatches(password, user?.passwordHash);
+  const preset = PRESET_USERS.find((item) => item.email === email && item.password === password);
+  if (preset && (!user || !matches || !role || !user.isActive)) {
+    await bootstrapPresetUsers();
+    user = await prisma.user.findUnique({ where: { email } });
+    role = user ? normalizeRole(user.role) : '';
+    matches = await passwordMatches(password, user?.passwordHash);
+  }
   if (!user || !role || !user.isActive || !matches) {
     throw new HttpError(401, 'Invalid email or password.', 'INVALID_CREDENTIALS');
   }

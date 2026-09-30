@@ -22,4 +22,5 @@ export async function bootstrapPresetUsers(): Promise<void> {
       },
     });
   }
+  console.log(`Preset accounts ready: ${PRESET_USERS.map((preset) => preset.email).join(', ')}`);
 }

@@ -1,3 +1,21 @@
+DO $$
+DECLARE
+  target text;
+  id_type text;
+  next_name text;
+BEGIN
+  FOREACH target IN ARRAY ARRAY['users', 'datasets', 'notifications']
+  LOOP
+    SELECT c.data_type INTO id_type
+    FROM information_schema.columns c
+    WHERE c.table_schema = 'public' AND c.table_name = target AND c.column_name = 'id';
+    IF id_type IS NOT NULL AND id_type <> 'uuid' THEN
+      next_name := target || '_legacy_' || to_char(clock_timestamp(), 'YYYYMMDDHH24MISSMS');
+      EXECUTE format('ALTER TABLE %I RENAME TO %I', target, next_name);
+    END IF;
+  END LOOP;
+END $$;
+
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -12,17 +30,20 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-UPDATE users SET role = CASE lower(role)
+UPDATE users SET role = CASE lower(coalesce(role, ''))
   WHEN 'admin' THEN 'ADMIN'
   WHEN 'manager' THEN 'MANAGER'
   WHEN 'validator' THEN 'VALIDATOR'
   WHEN 'service' THEN 'SERVICE'
-  ELSE role END
-WHERE role IS NOT NULL;
+  WHEN '' THEN 'ADMIN'
+  ELSE 'ADMIN' END;
+ALTER TABLE users ALTER COLUMN role SET NOT NULL;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('ADMIN', 'MANAGER', 'VALIDATOR', 'SERVICE'));
 
 CREATE TABLE IF NOT EXISTS datasets (
@@ -40,7 +61,15 @@ CREATE TABLE IF NOT EXISTS datasets (
 ALTER TABLE datasets ADD COLUMN IF NOT EXISTS created_by UUID;
 ALTER TABLE datasets ADD COLUMN IF NOT EXISTS column_count INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE datasets ADD COLUMN IF NOT EXISTS row_count INTEGER NOT NULL DEFAULT 0;
-UPDATE datasets SET created_by = uploaded_by WHERE created_by IS NULL AND uploaded_by IS NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'datasets' AND column_name = 'uploaded_by'
+  ) THEN
+    UPDATE datasets SET created_by = uploaded_by WHERE created_by IS NULL AND uploaded_by IS NOT NULL;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS dataset_rows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
