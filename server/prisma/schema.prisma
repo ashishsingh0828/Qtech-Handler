@@ -80,6 +80,13 @@ model Row {
   verifiedBy          User?         @relation("VerifiedBy", fields: [verifiedById], references: [id])
   verifiedAt          DateTime?     @map("verified_at")
   amcStatus           String?       @map("amc_status")
+  rejectionReason     String?       @map("rejection_reason")
+  validationDue       DateTime?     @map("validation_due")
+  proposalSentAt      DateTime?     @map("proposal_sent_at")
+  ackResponse         String?       @map("ack_response")
+  ackNote             String?       @map("ack_note")
+  nextFollowUp        DateTime?     @map("next_follow_up")
+  importedData        Json?         @map("imported_data")
   assignedValidatorId String?       @map("assigned_validator_id") @db.Uuid
   assignedValidator   User?         @relation("AssignedValidator", fields: [assignedValidatorId], references: [id])
   assignedServiceId   String?       @map("assigned_service_id") @db.Uuid
@@ -99,13 +106,15 @@ model ServiceCall {
   id           String    @id @default(uuid()) @db.Uuid
   rowId        String    @map("row_id") @db.Uuid
   row          Row       @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  datasetId    String?   @map("dataset_id") @db.Uuid
   type         String
   description  String
   reportedAt   DateTime  @default(now()) @map("reported_at")
   status       String    @default("Open")
   resolvedAt   DateTime? @map("resolved_at")
-  resolvedById String?   @map("resolved_by") @db.Uuid
-  resolvedBy   User?     @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  resolvedById   String?   @map("resolved_by") @db.Uuid
+  resolvedBy     User?     @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  resolvedByName String?   @map("resolved_by_name")
   note         String?
   createdAt    DateTime  @default(now()) @map("created_at")
 
@@ -121,7 +130,11 @@ model ActivityLog {
   row       Row?     @relation(fields: [rowId], references: [id], onDelete: SetNull)
   userId    String?  @map("actor_id") @db.Uuid
   user      User?    @relation(fields: [userId], references: [id])
+  actorName String?  @map("actor_name")
   action    String
+  columnKey String?  @map("column_key")
+  fromValue String?  @map("from_value")
+  toValue   String?  @map("to_value")
   changes   Json?    @map("detail")
   createdAt DateTime @default(now()) @map("created_at")
 

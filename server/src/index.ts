@@ -17,6 +17,7 @@ import datasetRoutes from './routes/datasets.ts';
 import rowRoutes from './routes/rows.ts';
 import bulkRoutes from './routes/bulk.ts';
 import metaRoutes from './routes/meta.ts';
+import { rowActionRoutes, serviceCallRoutes } from './routes/actions.ts';
 
 assertRuntimeConfig();
 
@@ -24,7 +25,7 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(cors({ origin: env.clientOrigin, credentials: true }));
 app.use(cookieParser());
-app.use('/api/datasets/import', express.raw({ type: () => true, limit: '25mb' }));
+app.use('/api/datasets/import', express.raw({ type: () => true, limit: '80mb' }));
 app.use(express.json({ limit: '2mb' }));
 
 app.get('/api/health', async (_req, res) => {
@@ -40,6 +41,8 @@ app.use('/api', attachUser);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api', metaRoutes);
+app.use('/api/rows', rowActionRoutes);
+app.use('/api/service-calls', serviceCallRoutes);
 app.use('/api/rows', bulkRoutes);
 datasetRoutes.use('/:datasetId/rows', rowRoutes);
 app.use('/api/datasets', datasetRoutes);

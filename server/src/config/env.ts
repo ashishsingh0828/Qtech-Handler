@@ -9,7 +9,7 @@ dotenv.config({ path: path.resolve(here, '../../.env'), override: true });
 export const LOCAL_DATABASE_URL = 'postgres://postgres:postgres@localhost:2001/qtech_data_management';
 
 export const env = {
-  port: Number(process.env.PORT || 4000),
+  port: Number(process.env.PORT || 5000),
   databaseUrl: process.env.DATABASE_URL || LOCAL_DATABASE_URL,
   jwtSecret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'local-dev-qtech-secret-16'),
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',

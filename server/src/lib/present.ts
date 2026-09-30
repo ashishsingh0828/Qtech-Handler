@@ -48,6 +48,11 @@ export interface StoredRow {
   verifiedById: string | null;
   verifiedAt: Date | null;
   amcStatus: string | null;
+  proposalSentAt?: Date | null;
+  ackResponse?: string | null;
+  ackNote?: string | null;
+  nextFollowUp?: Date | null;
+  importedData?: Prisma.JsonValue | null;
   assignedValidatorId: string | null;
   assignedServiceId: string | null;
   updatedAt: Date;

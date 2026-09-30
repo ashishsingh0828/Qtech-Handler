@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.ts';
 import { asyncHandler, assertUuid, HttpError } from '../lib/http.ts';
 import { requirePermission, requireUser } from '../middleware/auth.ts';
-import { buildWorkbook, parseWorkbook, type ParsedColumn } from '../lib/excel.ts';
+import { buildCsv, buildWorkbook, parseWorkbook, type ParsedColumn } from '../lib/excel.ts';
 import { jsonObject } from '../lib/ensureSchema.ts';
 import { asCells, equipmentOf, indexesOf } from '../lib/present.ts';
 import { mergeKey } from '../lib/records.ts';
@@ -82,7 +82,7 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
     throw new HttpError(status || 400, error instanceof Error ? error.message : 'Import failed.', code || 'IMPORT');
   }
   const filename = decodeURIComponent(String(req.get('x-filename') || 'workbook.xlsx')).slice(0, 240);
-  const name = String(req.body && !Buffer.isBuffer(req.body) ? req.body.name : '') || filename.replace(/\.(xlsx|xls)$/i, '') || 'Workbook';
+  const name = String(req.body && !Buffer.isBuffer(req.body) ? req.body.name : '') || filename.replace(/\.(xlsx|xls|csv)$/i, '') || 'Workbook';
   const datasetId = typeof req.query.datasetId === 'string' ? req.query.datasetId : '';
   const today = todayInZone(env.timezone);
   const summary = await prisma.$transaction(async (tx) => {
@@ -167,6 +167,7 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
             data: jsonObject(data),
             serialNo: indexed.serialNo,
             customerName: indexed.customerName,
+            ...(current.importedData == null ? { importedData: jsonObject(record.data) } : {}),
           },
         });
         updated += 1;
@@ -183,6 +184,7 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
             serialNo: indexed.serialNo,
             customerName: indexed.customerName,
             data: jsonObject(record.data),
+            importedData: jsonObject(record.data),
             isDuplicateSuspect: suspect,
           },
         });
@@ -229,8 +231,16 @@ router.get('/:id/export', asyncHandler(async (req, res) => {
       displayOrder: column.displayOrder,
       isSystem: column.isSystem,
     }));
-  const buffer = buildWorkbook(columns, dataset.rows.map((row) => asCells(row.data)));
-  const filename = `${dataset.name.replace(/[^\w.-]+/g, '_') || 'dataset'}.xlsx`;
+  const cells = dataset.rows.map((row) => asCells(row.data));
+  const stem = dataset.name.replace(/[^\w.-]+/g, '_') || 'dataset';
+  if (req.query.format === 'csv') {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${stem}.csv"`);
+    res.send(buildCsv(columns, cells));
+    return;
+  }
+  const buffer = buildWorkbook(columns, cells);
+  const filename = `${stem}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(buffer);

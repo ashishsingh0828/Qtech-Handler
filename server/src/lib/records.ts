@@ -44,6 +44,11 @@ function toStored(row: {
   verifiedById: string | null;
   verifiedAt: Date | null;
   amcStatus: string | null;
+  proposalSentAt?: Date | null;
+  ackResponse?: string | null;
+  ackNote?: string | null;
+  nextFollowUp?: Date | null;
+  importedData?: Prisma.JsonValue | null;
   assignedValidatorId: string | null;
   assignedServiceId: string | null;
   updatedAt: Date;
@@ -67,7 +72,11 @@ async function writeActivity(tx: Tx, input: {
   datasetId: string;
   rowId: string | null;
   userId: string;
+  actorName?: string;
   action: string;
+  columnKey?: string | null;
+  fromValue?: string | null;
+  toValue?: string | null;
   changes: Prisma.InputJsonObject;
 }): Promise<void> {
   await tx.activityLog.create({
@@ -75,7 +84,11 @@ async function writeActivity(tx: Tx, input: {
       datasetId: input.datasetId,
       rowId: input.rowId,
       userId: input.userId,
+      actorName: input.actorName || null,
       action: input.action,
+      columnKey: input.columnKey || null,
+      fromValue: input.fromValue ?? null,
+      toValue: input.toValue ?? null,
       changes: input.changes,
     },
   });
@@ -118,11 +131,17 @@ export async function patchRecord(input: {
         customerName: indexed.customerName,
       },
     });
+    const changedKey = Object.keys(incoming)[0] || null;
+    const previous = asCells(row.data);
     await writeActivity(tx, {
       datasetId: input.datasetId,
       rowId: row.id,
       userId: input.user.id,
+      actorName: input.user.name,
       action: 'edit',
+      columnKey: changedKey,
+      fromValue: changedKey ? String(previous[changedKey] ?? '') : null,
+      toValue: changedKey ? String(incoming[changedKey] ?? '') : null,
       changes: jsonObject(incoming),
     });
     return next;
@@ -162,18 +181,24 @@ export async function validateRecord(input: {
     data.validated_at = new Date().toISOString();
     const next = await tx.row.update({
       where: { id: row.id },
-      data: {
+        data: {
         version: { increment: 1 },
         data: jsonObject(data),
         validatedById: input.user.id,
         validatedAt: new Date(),
+        rejectionReason: input.decision === 'No' ? String(data.rejection_reason || '') : null,
+        validationDue: input.decision === 'No' && data.validation_due ? new Date(String(data.validation_due)) : null,
       },
     });
     await writeActivity(tx, {
       datasetId: input.datasetId,
       rowId: row.id,
       userId: input.user.id,
+      actorName: input.user.name,
       action: input.decision === 'Yes' ? 'validate_yes' : 'validate_no',
+      columnKey: 'validated',
+      fromValue: String(asCells(row.data).validated || ''),
+      toValue: input.decision,
       changes: jsonObject({ decision: input.decision, reason: data.rejection_reason }),
     });
     const leaders = await userIdsByRole(tx, ['ADMIN', 'MANAGER']);
@@ -281,7 +306,7 @@ export async function amcRecord(input: {
   datasetId: string;
   rowId: string;
   version: number;
-  action: 'proposal_sent' | 'acknowledge' | 'decline';
+  action: 'proposal_sent' | 'acknowledge' | 'decline' | 'reset';
   note?: string;
   nextFollowUp?: string;
   user: AuthUser;
@@ -293,7 +318,16 @@ export async function amcRecord(input: {
     const current = effectiveAmcStatus(data, input.today, row.amcStatus);
     const note = (input.note || '').trim();
     let nextStatus = current;
-    if (input.action === 'proposal_sent') {
+    if (input.action === 'reset') {
+      nextStatus = '';
+      data.amc_status = null;
+      data.amc_state = null;
+      data.proposal_sent_at = null;
+      data.amc_notes = null;
+      data.ack_at = null;
+      data.amc_decided_at = null;
+      data.next_follow_up = null;
+    } else if (input.action === 'proposal_sent') {
       if (current !== 'AMC Due') throw new HttpError(409, 'A proposal can be sent only when the contract is AMC Due.', 'CONFLICT');
       nextStatus = 'Proposal Sent';
       data.proposal_sent_at = new Date().toISOString();
@@ -316,17 +350,25 @@ export async function amcRecord(input: {
     data.amc_state = nextStatus;
     const next = await tx.row.update({
       where: { id: row.id },
-      data: {
+        data: {
         version: { increment: 1 },
         data: jsonObject(data),
-        amcStatus: nextStatus,
+        amcStatus: input.action === 'reset' ? null : nextStatus,
+        proposalSentAt: data.proposal_sent_at ? new Date(String(data.proposal_sent_at)) : row.proposalSentAt,
+        ackResponse: input.action === 'acknowledge' ? 'Acknowledged' : input.action === 'decline' ? 'Declined' : row.ackResponse,
+        ackNote: note || row.ackNote,
+        nextFollowUp: data.next_follow_up ? new Date(String(data.next_follow_up)) : row.nextFollowUp,
       },
     });
     await writeActivity(tx, {
       datasetId: input.datasetId,
       rowId: row.id,
       userId: input.user.id,
+      actorName: input.user.name,
       action: `amc_${input.action}`,
+      columnKey: 'amc_status',
+      fromValue: current,
+      toValue: nextStatus,
       changes: jsonObject({ status: nextStatus, note: note || null }),
     });
     const leaders = await userIdsByRole(tx, ['ADMIN', 'MANAGER']);
@@ -447,7 +489,7 @@ export async function logCall(input: {
   const saved = await prisma.$transaction(async (tx) => {
     const { row } = await locked(tx, input.datasetId, input.rowId, input.version, input.today);
     await tx.serviceCall.create({
-      data: { rowId: row.id, type: input.type, description, status: 'Open' },
+      data: { rowId: row.id, datasetId: input.datasetId, type: input.type, description, status: 'Open' },
     });
     const next = await tx.row.update({ where: { id: row.id }, data: { version: { increment: 1 } } });
     await writeActivity(tx, {
@@ -493,6 +535,7 @@ export async function resolveCall(input: {
         status: 'Resolved',
         resolvedAt: new Date(),
         resolvedById: input.user.id,
+        resolvedByName: input.user.name,
         note: (input.note || '').trim() || null,
       },
     });
@@ -516,6 +559,51 @@ export async function resolveCall(input: {
     return next;
   });
   emit('call.resolved', input.datasetId, saved.id, input.user.id);
+  return presentRow(toStored(saved), input.today);
+}
+
+export async function revertRecord(input: {
+  datasetId: string;
+  rowId: string;
+  version: number;
+  user: AuthUser;
+  today: string;
+  columns: ColumnDTO[];
+}): Promise<RecordDTO> {
+  const saved = await prisma.$transaction(async (tx) => {
+    const { row } = await locked(tx, input.datasetId, input.rowId, input.version, input.today);
+    const imported = asCells(row.importedData ?? null);
+    if (!Object.keys(imported).length) throw new HttpError(409, 'This row has no imported snapshot to restore.', 'CONFLICT');
+    const current = asCells(row.data);
+    const nextData: CellMap = { ...current };
+    const restored: Record<string, string | number | null> = {};
+    for (const column of input.columns) {
+      if (!canEditColumn(input.user.role, column)) continue;
+      const value = imported[column.key] ?? null;
+      nextData[column.key] = value;
+      restored[column.key] = value;
+    }
+    const indexed = indexesOf(nextData);
+    const next = await tx.row.update({
+      where: { id: row.id },
+      data: {
+        version: { increment: 1 },
+        data: jsonObject(nextData),
+        serialNo: indexed.serialNo,
+        customerName: indexed.customerName,
+      },
+    });
+    await writeActivity(tx, {
+      datasetId: input.datasetId,
+      rowId: row.id,
+      userId: input.user.id,
+      actorName: input.user.name,
+      action: 'revert_import',
+      changes: jsonObject(restored),
+    });
+    return next;
+  });
+  emit('row.updated', input.datasetId, saved.id, input.user.id);
   return presentRow(toStored(saved), input.today);
 }
 

@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useOutletDataset } from '../shell/AppShell';
 import { DateField, EmptyState, KpiCard, PageHeader, SelectField, StatusPill, ActionSheet } from '../ui';
-import { businessDateLabel } from '@shared/dates.ts';
+import { addDays, businessDateLabel, todayInZone } from '@shared/dates.ts';
 import type { Derived } from '@shared/metrics.ts';
 
 interface RecordRow {
@@ -54,6 +54,10 @@ export default function HomePage() {
 
 function AdminHome({ subtitle, data, datasetId }: { subtitle: string; data?: Dashboard; datasetId: string }) {
   const navigate = useNavigate();
+  const datasets = useQuery({
+    queryKey: ['datasets'],
+    queryFn: () => api<{ datasets: { id: string; name: string; rowCount: number; columnCount: number }[] }>('/api/datasets'),
+  });
   const counts = data?.counts;
   const max = Math.max(1, ...(data?.workload || []).map((item) => item.total));
   return (
@@ -97,7 +101,16 @@ function AdminHome({ subtitle, data, datasetId }: { subtitle: string; data?: Das
         <ul className="mt-2 text-[13px]">
           {(data?.health?.duplicateSerials || []).map((item) => <li key={item.serial_no} className="truncate">{item.serial_no} · {item.total}</li>)}
         </ul>
-        <button type="button" className="btn btn-secondary mt-3" onClick={() => navigate(`/records`)} disabled={!datasetId}>Review records</button>
+        <button type="button" className="btn btn-secondary mt-3" onClick={() => navigate('/records')} disabled={!datasetId}>Review records</button>
+      </section>
+      <section className="mt-4 grid gap-4 md:grid-cols-2">
+        {(datasets.data?.datasets || []).map((dataset) => (
+          <article key={dataset.id} className="card min-w-0">
+            <h2 className="m-0 truncate text-[16px] font-medium">{dataset.name}</h2>
+            <p className="mt-1 text-[13px] tabular-nums text-muted">{dataset.rowCount} rows · {dataset.columnCount} columns</p>
+            <button type="button" className="btn btn-secondary mt-3" onClick={() => navigate('/datasets')}>Manage</button>
+          </article>
+        ))}
       </section>
     </div>
   );
@@ -286,7 +299,11 @@ function ServiceHome({ subtitle, data, datasetId }: { subtitle: string; data?: D
     <div className="page">
       <PageHeader title="Service Desk" subtitle={subtitle} />
       <div className="kpi-row">
-        <KpiCard label="PMS due this week" value={counts?.expiring_soon ?? '—'} />
+        <KpiCard label="PMS due this week" value={list.filter((row) => {
+          const today = data?.today || todayInZone(data?.timezone || 'Asia/Kolkata');
+          const limit = addDays(today, 7);
+          return row.derived.visits.some((visit) => visit.scheduled && !visit.completed && visit.scheduled >= today && visit.scheduled <= limit);
+        }).length} />
         <KpiCard label="PMS overdue" value={counts?.pms_overdue ?? '—'} />
         <KpiCard label="AMC due" value={counts?.amc_due ?? '—'} />
         <KpiCard label="Follow-ups today" value={counts?.followup_due ?? '—'} />

@@ -290,8 +290,25 @@ export interface ColumnRef {
   groupKey: string;
 }
 
+const REFERENCE_FIELDS = new Set([
+  'sr_no',
+  'serial_no',
+  'customer_name',
+  'email',
+  'mobile_no',
+  'city',
+  'equipment_name',
+  'contract_type',
+  'start_date',
+  'end_date',
+]);
+
+export function isReferenceField(key: string): boolean {
+  return REFERENCE_FIELDS.has(key);
+}
+
 export function canEditColumn(role: unknown, column: ColumnRef): boolean {
-  if (isServerField(column.key)) return false;
+  if (isServerField(column.key) || isReferenceField(column.key)) return false;
   const permissions = permissionsFor(role);
   if (!permissions) return false;
   if (permissions.editGroups === '*') return true;

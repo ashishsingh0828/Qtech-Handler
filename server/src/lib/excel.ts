@@ -12,7 +12,7 @@ import { parseDate } from '../../../shared/dates.ts';
 import type { CellMap } from '../../../shared/metrics.ts';
 
 const MAX_SCAN_COLUMNS = 1024;
-const MAX_ROWS = 50000;
+const MAX_ROWS = 200000;
 const PROTECTED = new Set<string>(SERVER_FIELDS);
 
 export interface ParsedColumn {
@@ -232,6 +232,15 @@ export function buildWorkbook(columns: ParsedColumn[], rows: CellMap[]): Buffer 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, 'Master');
   return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+}
+
+export function buildCsv(columns: ParsedColumn[], rows: CellMap[]): string {
+  const headers = columns.map((column) => column.label);
+  const body = rows.map((row) => columns.map((column) => {
+    const value = row[column.key];
+    return value == null ? '' : value;
+  }));
+  return XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet([headers, ...body]));
 }
 
 export function sourceKeys(columns: ParsedColumn[]): Set<string> {

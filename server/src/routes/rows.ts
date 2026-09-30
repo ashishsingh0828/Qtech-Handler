@@ -8,7 +8,7 @@ import { addDays, todayInZone } from '../../../shared/dates.ts';
 import { chipSql, countsFrom, pmsOverdueSql, type MetricCounts } from '../lib/filters.ts';
 import { asCells, presentRow } from '../lib/present.ts';
 import { jsonObject } from '../lib/ensureSchema.ts';
-import { loadColumns, amcRecord, assignRecord, logCall, markPms, patchRecord, resolveCall, validateRecord, verifyRecord } from '../lib/records.ts';
+import { loadColumns, amcRecord, assignRecord, logCall, markPms, patchRecord, resolveCall, revertRecord, validateRecord, verifyRecord } from '../lib/records.ts';
 import { emit } from '../lib/notify.ts';
 import { hasPermission } from '../../../shared/permissions.ts';
 
@@ -195,6 +195,21 @@ router.patch('/:rowId', asyncHandler(async (req, res) => {
     rowId: req.params.rowId,
     version,
     updates: updates as Record<string, unknown>,
+    user: req.user,
+    today: todayInZone(env.timezone),
+    columns,
+  });
+  res.json({ row });
+}));
+
+router.post('/:rowId/revert', asyncHandler(async (req, res) => {
+  assertUuid(String(req.params.datasetId || ''));
+  if (!req.user) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
+  const columns = await loadColumns(String(req.params.datasetId));
+  const row = await revertRecord({
+    datasetId: String(req.params.datasetId),
+    rowId: req.params.rowId,
+    version: Number(req.body?.version),
     user: req.user,
     today: todayInZone(env.timezone),
     columns,
