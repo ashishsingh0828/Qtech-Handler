@@ -9,7 +9,7 @@ import { prisma } from './lib/prisma.ts';
 import { ensureSchema } from './lib/ensureSchema.ts';
 import { errorMiddleware } from './lib/http.ts';
 import { attachUser } from './middleware/auth.ts';
-import { bootstrapAdmin } from './bootstrap.ts';
+import { bootstrapPresetUsers } from './bootstrap.ts';
 import { startJobs } from './lib/jobs.ts';
 import authRoutes from './routes/auth.ts';
 import userRoutes from './routes/users.ts';
@@ -62,7 +62,7 @@ if (env.nodeEnv === 'production' && fs.existsSync(clientDist)) {
 app.use(errorMiddleware);
 
 ensureSchema()
-  .then(() => bootstrapAdmin())
+  .then(() => bootstrapPresetUsers())
   .then(() => {
     startJobs();
     const server = app.listen(env.port, () => {

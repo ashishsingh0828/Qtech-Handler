@@ -1,19 +1,25 @@
 import bcrypt from 'bcryptjs';
+import { PRESET_USERS } from '../../shared/presets.ts';
 import { prisma } from './lib/prisma.ts';
-import { env } from './config/env.ts';
 
-export async function bootstrapAdmin(): Promise<void> {
-  const count = await prisma.user.count();
-  if (count > 0) return;
-  if (!env.adminEmail || env.adminPassword.length < 8) return;
-  const passwordHash = await bcrypt.hash(env.adminPassword, 12);
-  await prisma.user.create({
-    data: {
-      email: env.adminEmail,
-      name: env.adminName,
-      passwordHash,
-      role: 'ADMIN',
-      isActive: true,
-    },
-  });
+export async function bootstrapPresetUsers(): Promise<void> {
+  for (const preset of PRESET_USERS) {
+    const passwordHash = await bcrypt.hash(preset.password, 12);
+    await prisma.user.upsert({
+      where: { email: preset.email },
+      update: {
+        name: preset.name,
+        role: preset.role,
+        passwordHash,
+        isActive: true,
+      },
+      create: {
+        email: preset.email,
+        name: preset.name,
+        passwordHash,
+        role: preset.role,
+        isActive: true,
+      },
+    });
+  }
 }
