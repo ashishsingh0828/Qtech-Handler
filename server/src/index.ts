@@ -7,7 +7,7 @@ import cors from 'cors';
 import { assertRuntimeConfig, env } from './config/env.ts';
 import { prisma } from './lib/prisma.ts';
 import { ensureSchema } from './lib/ensureSchema.ts';
-import { errorMiddleware } from './lib/http.ts';
+import { errorMiddleware, requestContext } from './lib/http.ts';
 import { attachUser } from './middleware/auth.ts';
 import { bootstrapPresetUsers } from './bootstrap.ts';
 import { startJobs } from './lib/jobs.ts';
@@ -23,6 +23,7 @@ assertRuntimeConfig();
 
 const app = express();
 app.set('trust proxy', 1);
+app.use(requestContext);
 app.use(cors({ origin: env.clientOrigin, credentials: true }));
 app.use(cookieParser());
 app.use('/api/datasets/import', express.raw({ type: () => true, limit: '80mb' }));

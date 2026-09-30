@@ -79,8 +79,9 @@ export default function AppShell() {
     source.onopen = () => setLive(true);
     source.onerror = () => setLive(false);
     source.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as { datasetId?: string | null };
+      const payload = JSON.parse(event.data) as { type?: string; datasetId?: string | null };
       setLive(true);
+      if (payload.type === 'hello') return;
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['activity'] });

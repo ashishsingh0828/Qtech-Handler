@@ -19,7 +19,14 @@ export function removeClient(res: Response): void {
 
 export function publish(event: LiveEvent): void {
   const payload = `data: ${JSON.stringify(event)}\n\n`;
-  for (const client of clients) client.write(payload);
+  for (const client of clients) {
+    try {
+      client.write(payload);
+    } catch (error) {
+      console.error('sse', error);
+      clients.delete(client);
+    }
+  }
 }
 
 export function clientCount(): number {

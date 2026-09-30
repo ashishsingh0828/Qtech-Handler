@@ -64,6 +64,8 @@ export default function RecordsPage() {
   const [editing, setEditing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cellState, setCellState] = useState<Record<string, 'Pending' | 'Saved'>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!user) return;
     setGroup(readPref(`qtech.group.${user.id}`, 'customer_detail'));
@@ -119,9 +121,20 @@ export default function RecordsPage() {
   }
   async function saveCell(row: RecordRow, key: string, value: string) {
     const stamp = `${row.id}:${key}`;
+    setDrafts((current) => ({ ...current, [stamp]: value }));
+    setFailed((current) => {
+      const next = { ...current };
+      delete next[stamp];
+      return next;
+    });
     setCellState((current) => ({ ...current, [stamp]: 'Pending' }));
     try {
       await api(`/api/datasets/${datasetId}/rows/${row.id}`, { method: 'PATCH', body: { version: row.version, updates: { [key]: value } } });
+      setDrafts((current) => {
+        const next = { ...current };
+        delete next[stamp];
+        return next;
+      });
       setCellState((current) => ({ ...current, [stamp]: 'Saved' }));
       queryClient.invalidateQueries({ queryKey: ['rows', datasetId] });
       toast.push(user ? `Saved by ${user.name}` : 'Saved');
@@ -131,7 +144,9 @@ export default function RecordsPage() {
         delete next[stamp];
         return next;
       });
-      toast.push(error instanceof Error ? error.message : 'Save failed');
+      const message = error instanceof Error ? error.message : 'Save failed';
+      setFailed((current) => ({ ...current, [stamp]: message }));
+      toast.push(message);
     }
   }
   async function markVisit(row: RecordRow, index: number) {
@@ -220,11 +235,23 @@ export default function RecordsPage() {
                     {visible.map((column) => (
                       <td key={column.id} className="clip">
                         {editing && user && canEditColumn(user.role, column) ? (
-                          <input
-                            className="field h-8"
-                            defaultValue={cellText(row, column.key) === '—' ? '' : cellText(row, column.key)}
-                            onBlur={(event) => { void saveCell(row, column.key, event.target.value); }}
-                          />
+                          <span className="inline-flex min-w-0 items-center gap-1">
+                            <input
+                              className="field h-8"
+                              defaultValue={drafts[`${row.id}:${column.key}`] ?? (cellText(row, column.key) === '—' ? '' : cellText(row, column.key))}
+                              onBlur={(event) => {
+                                const value = event.target.value;
+                                const stamp = `${row.id}:${column.key}`;
+                                if (failed[stamp] && drafts[stamp] === value) return;
+                                const shown = cellText(row, column.key) === '—' ? '' : cellText(row, column.key);
+                                if (drafts[stamp] === undefined && value === shown) return;
+                                void saveCell(row, column.key, value);
+                              }}
+                            />
+                            {failed[`${row.id}:${column.key}`] ? (
+                              <button type="button" className="btn btn-secondary" onClick={() => { void saveCell(row, column.key, drafts[`${row.id}:${column.key}`] || ''); }}>Retry</button>
+                            ) : null}
+                          </span>
                         ) : <span className={mutedValue(row.data[column.key]) ? 'text-muted' : undefined}>{cellText(row, column.key)}</span>}
                         {cellState[`${row.id}:${column.key}`] ? <span className="ml-1 text-[11px] text-muted">{cellState[`${row.id}:${column.key}`]}</span> : null}
                         {row.version > 1 && !cellState[`${row.id}:${column.key}`] ? <span className="ml-1 text-[11px] text-muted">Modified</span> : null}

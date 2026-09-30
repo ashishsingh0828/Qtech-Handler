@@ -1,5 +1,7 @@
+import { randomUUID } from 'crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
+import { ensureSchema } from './ensureSchema.ts';
 
 export class HttpError extends Error {
   status: number;
@@ -22,27 +24,70 @@ export function asyncHandler(
   };
 }
 
+export function requestContext(req: Request, res: Response, next: NextFunction): void {
+  req.requestId = randomUUID();
+  res.setHeader('X-Request-Id', req.requestId);
+  next();
+}
+
+function firstLine(error: unknown): string {
+  if (!(error instanceof Error)) return 'Unexpected error';
+  return error.message.split('\n').map((line) => line.trim()).find(Boolean) || 'Unexpected error';
+}
+
+function carriedStatus(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null;
+  const record = error as { status?: unknown; statusCode?: unknown };
+  const status = typeof record.status === 'number' ? record.status : typeof record.statusCode === 'number' ? record.statusCode : null;
+  if (status == null || status < 400 || status > 599) return null;
+  return status;
+}
+
 export function errorMiddleware(error: unknown, req: Request, res: Response, _next: NextFunction): void {
+  const requestId = req.requestId || '';
   const pathName = req.originalUrl.split('?')[0];
+  console.error(requestId, req.method, pathName, error);
   if (pathName === '/api/auth/me') {
-    res.status(401).json({ user: null });
-    return;
-  }
-  if (pathName === '/api/auth/enter' || pathName === '/api/auth/login') {
-    const message = error instanceof Error ? error.message : 'Sign in failed';
-    const status = error instanceof HttpError ? error.status : 503;
-    res.status(status).json({ error: message, code: error instanceof HttpError ? error.code : 'UNAVAILABLE' });
+    res.status(401).json({ user: null, error: 'Sign in required.', code: 'UNAUTHORIZED', requestId });
     return;
   }
   if (error instanceof HttpError) {
-    res.status(error.status).json({ error: error.message, code: error.code, ...error.details });
+    const status = pathName === '/api/auth/enter' || pathName === '/api/auth/login' ? (error.status >= 500 ? 503 : error.status) : error.status;
+    res.status(status).json({ error: error.message, code: error.code, requestId, ...error.details });
     return;
   }
-  console.error(error);
-  const raw = error instanceof Error ? error.message.split('\n').map((line) => line.trim()).find(Boolean) || 'Unexpected error' : 'Unexpected error';
-  const prismaError = error instanceof Prisma.PrismaClientValidationError || error instanceof Prisma.PrismaClientKnownRequestError;
-  const message = prismaError || raw.startsWith('Invalid `') || raw.length > 180 ? 'That change could not be saved.' : raw;
-  res.status(500).json({ error: message, code: 'INTERNAL' });
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022') {
+    const column = typeof error.meta?.column === 'string' ? error.meta.column : 'a required column';
+    ensureSchema().catch((schemaError: unknown) => console.error(requestId, schemaError));
+    if (pathName === '/api/auth/enter' || pathName === '/api/auth/login') {
+      res.status(503).json({ error: `Database is missing ${column}.`, code: 'SCHEMA', requestId });
+      return;
+    }
+    res.status(503).json({ error: `Database is missing ${column}. Retry.`, code: 'SCHEMA', requestId });
+    return;
+  }
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+    res.status(404).json({ error: 'Not found.', code: 'NOT_FOUND', requestId });
+    return;
+  }
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    res.status(409).json({ error: 'That value is already in use.', code: 'CONFLICT', requestId });
+    return;
+  }
+  if (error instanceof Prisma.PrismaClientValidationError) {
+    res.status(400).json({ error: 'The request could not be saved.', code: 'VALIDATION', requestId });
+    return;
+  }
+  const status = carriedStatus(error);
+  if (status != null && status < 500) {
+    res.status(status).json({ error: firstLine(error), code: status === 400 ? 'VALIDATION' : 'ERROR', requestId });
+    return;
+  }
+  if (pathName === '/api/auth/enter' || pathName === '/api/auth/login') {
+    res.status(503).json({ error: firstLine(error), code: 'UNAVAILABLE', requestId });
+    return;
+  }
+  res.status(500).json({ error: firstLine(error), code: 'INTERNAL', requestId });
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

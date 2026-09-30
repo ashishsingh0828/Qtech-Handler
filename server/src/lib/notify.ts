@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { publish } from './events.ts';
+import { isolate } from './sideEffect.ts';
 
 type Tx = Prisma.TransactionClient;
 
@@ -20,35 +21,41 @@ export async function notifyUsers(tx: Tx, input: {
   datasetId?: string | null;
   priority?: 'NORMAL' | 'HIGH';
 }): Promise<void> {
-  const since = new Date(Date.now() - 60_000);
-  const unique = [...new Set(input.userIds)].filter((id) => id && id !== input.actorId);
-  for (const userId of unique) {
-    if (input.rowId) {
-      const recent = await tx.notification.findFirst({
-        where: {
-          userId,
+  await isolate(tx, 'notification', async () => {
+    const since = new Date(Date.now() - 60_000);
+    const unique = [...new Set(input.userIds)].filter((id) => id && id !== input.actorId);
+    for (const userId of unique) {
+      if (input.rowId) {
+        const recent = await tx.notification.findFirst({
+          where: {
+            userId,
+            actorId: input.actorId,
+            rowId: input.rowId,
+            type: input.type,
+            createdAt: { gte: since },
+          },
+        });
+        if (recent) continue;
+      }
+      await tx.notification.create({
+        data: {
           actorId: input.actorId,
-          rowId: input.rowId,
           type: input.type,
-          createdAt: { gte: since },
+          message: input.message,
+          rowId: input.rowId || null,
+          priority: input.priority || 'NORMAL',
+          user: { connect: { id: userId } },
+          ...(input.datasetId ? { dataset: { connect: { id: input.datasetId } } } : {}),
         },
       });
-      if (recent) continue;
     }
-    await tx.notification.create({
-      data: {
-        actorId: input.actorId,
-        type: input.type,
-        message: input.message,
-        rowId: input.rowId || null,
-        priority: input.priority || 'NORMAL',
-        user: { connect: { id: userId } },
-        ...(input.datasetId ? { dataset: { connect: { id: input.datasetId } } } : {}),
-      },
-    });
-  }
+  });
 }
 
 export function emit(type: string, datasetId: string | null, rowId: string | null, actorId: string): void {
-  publish({ type, datasetId, rowId, actorId });
+  try {
+    publish({ type, datasetId, rowId, actorId });
+  } catch (error) {
+    console.error('sse', error);
+  }
 }

@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from './prisma.ts';
 import { HttpError } from './http.ts';
 import { emit, notifyUsers, userIdsByRole } from './notify.ts';
+import { isolate } from './sideEffect.ts';
 import { applyColumnTypes, asCells, equipmentOf, indexesOf, normalizeToken, presentRow, type ColumnDTO, type RecordDTO, type StoredRow } from './present.ts';
 import { jsonObject } from './ensureSchema.ts';
 import { parseDate } from '../../../shared/dates.ts';
@@ -79,18 +80,20 @@ export async function writeActivity(tx: Tx, input: {
   toValue?: string | null;
   changes: Prisma.InputJsonObject;
 }): Promise<void> {
-  await tx.activityLog.create({
-    data: {
-      action: input.action,
-      actorName: input.actorName || null,
-      columnKey: input.columnKey || null,
-      fromValue: input.fromValue ?? null,
-      toValue: input.toValue ?? null,
-      changes: input.changes,
-      ...(input.datasetId ? { dataset: { connect: { id: input.datasetId } } } : {}),
-      ...(input.rowId ? { row: { connect: { id: input.rowId } } } : {}),
-      ...(input.userId ? { user: { connect: { id: input.userId } } } : {}),
-    },
+  await isolate(tx, 'activity', async () => {
+    await tx.activityLog.create({
+      data: {
+        action: input.action,
+        actorName: input.actorName || null,
+        columnKey: input.columnKey || null,
+        fromValue: input.fromValue ?? null,
+        toValue: input.toValue ?? null,
+        changes: input.changes,
+        ...(input.datasetId ? { dataset: { connect: { id: input.datasetId } } } : {}),
+        ...(input.rowId ? { row: { connect: { id: input.rowId } } } : {}),
+        ...(input.userId ? { user: { connect: { id: input.userId } } } : {}),
+      },
+    });
   });
 }
 

@@ -161,6 +161,19 @@ const STATEMENTS = [
     detail JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `ALTER TABLE dataset_rows ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+  `ALTER TABLE dataset_rows ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+  `ALTER TABLE dataset_rows ADD COLUMN IF NOT EXISTS data JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `UPDATE dataset_rows SET version = 1 WHERE version IS NULL`,
+  `UPDATE dataset_rows SET updated_at = NOW() WHERE updated_at IS NULL`,
+  `ALTER TABLE datasets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+  `ALTER TABLE datasets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+  `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS dataset_id UUID`,
+  `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS row_id UUID`,
+  `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_id UUID`,
+  `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS action TEXT`,
+  `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS detail JSONB`,
+  `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
   `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_name TEXT`,
   `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS column_key TEXT`,
   `ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS from_value TEXT`,
@@ -209,16 +222,18 @@ interface LegacySchema {
 }
 
 export async function ensureSchema(): Promise<void> {
+  const failures: string[] = [];
   for (const statement of STATEMENTS) {
     try {
       await prisma.$executeRawUnsafe(statement);
     } catch (error) {
-      if (statement.includes('CREATE EXTENSION')) continue;
-      throw error;
+      const message = error instanceof Error ? error.message.split('\n').find((line) => line.trim()) || error.message : 'schema statement failed';
+      console.error('Schema statement failed:', message);
+      failures.push(message);
     }
   }
-  await prisma.$executeRawUnsafe(`
-    DO $$
+  for (const statement of [
+    `DO $$
     BEGIN
       IF EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -228,11 +243,9 @@ export async function ensureSchema(): Promise<void> {
       ELSE
         UPDATE notifications SET type = COALESCE(type, 'notice') WHERE type IS NULL;
       END IF;
-    END $$
-  `);
-  await prisma.$executeRawUnsafe(`ALTER TABLE notifications ALTER COLUMN type SET NOT NULL`);
-  await prisma.$executeRawUnsafe(`
-    DO $$
+    END $$`,
+    `ALTER TABLE notifications ALTER COLUMN type SET NOT NULL`,
+    `DO $$
     BEGIN
       IF EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -241,9 +254,47 @@ export async function ensureSchema(): Promise<void> {
         EXECUTE 'ALTER TABLE notifications ALTER COLUMN kind DROP NOT NULL';
         EXECUTE 'ALTER TABLE notifications ALTER COLUMN kind SET DEFAULT ''''';
       END IF;
-    END $$
-  `);
-  await backfillColumns();
+    END $$`,
+  ]) {
+    try {
+      await prisma.$executeRawUnsafe(statement);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.split('\n').find((line) => line.trim()) || error.message : 'schema statement failed';
+      console.error('Schema statement failed:', message);
+      failures.push(message);
+    }
+  }
+  try {
+    await backfillColumns();
+  } catch (error) {
+    const message = error instanceof Error ? error.message.split('\n').find((line) => line.trim()) || error.message : 'column backfill failed';
+    console.error('Schema backfill failed:', message);
+    failures.push(message);
+  }
+  const missing = await prisma.$queryRaw<{ table_name: string; column_name: string }[]>`
+    SELECT required.table_name, required.column_name
+    FROM (VALUES
+      ('users', 'active'),
+      ('users', 'role'),
+      ('users', 'password_hash'),
+      ('dataset_rows', 'version'),
+      ('dataset_rows', 'updated_at'),
+      ('dataset_rows', 'updated_by_name'),
+      ('dataset_rows', 'data'),
+      ('audit_log', 'detail'),
+      ('audit_log', 'actor_id')
+    ) AS required(table_name, column_name)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns c
+      WHERE c.table_schema = 'public'
+        AND c.table_name = required.table_name
+        AND c.column_name = required.column_name
+    )
+  `;
+  if (missing.length) {
+    throw new Error(`Database is missing ${missing.map((column) => `${column.table_name}.${column.column_name}`).join(', ')}`);
+  }
+  if (failures.length) console.error(`Schema completed with ${failures.length} skipped statement(s).`);
 }
 
 async function backfillColumns(): Promise<void> {
