@@ -67,12 +67,9 @@ export async function attachUser(req: Request, res: Response, next: NextFunction
       req.user = { id: user.id, email: user.email, name: user.name, role };
     }
     next();
-  } catch (error) {
-    if (error instanceof jwt.JsonWebTokenError) {
-      next();
-      return;
-    }
-    next(error);
+  } catch {
+    req.user = null;
+    next();
   }
 }
 

@@ -18,11 +18,11 @@ export default function LoginPage() {
   const [busy, setBusy] = useState('');
   if (ready && user) return <Navigate to="/" replace />;
 
-  async function enter(role: string) {
+  async function enter(role: string, email: string) {
     setBusy(role);
     setError('');
     try {
-      const data = await api<{ user: SessionUser }>('/api/auth/enter', { method: 'POST', body: { role } });
+      const data = await api<{ user: SessionUser }>('/api/auth/enter', { method: 'POST', body: { role, email } });
       setUser(data.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not open that workspace');
@@ -45,10 +45,11 @@ export default function LoginPage() {
                 type="button"
                 className="card flex flex-col items-center gap-3 py-8 text-ink"
                 disabled={busy !== ''}
-                onClick={() => { void enter(preset.role); }}
+                onClick={() => { void enter(preset.role, preset.email); }}
               >
                 <Icon size={40} strokeWidth={1.5} />
                 <span className="text-[15px] font-medium">{busy === preset.role ? 'Opening' : preset.roleLabel}</span>
+                <span className="text-[12px] text-muted">{preset.email}</span>
               </button>
             );
           })}

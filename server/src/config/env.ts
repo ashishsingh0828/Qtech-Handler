@@ -1,11 +1,17 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-dotenv.config();
+const here = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(here, '../../../.env') });
+dotenv.config({ path: path.resolve(here, '../../.env') });
+
+export const LOCAL_DATABASE_URL = 'postgres://postgres:postgres@localhost:5432/qtech_data_management';
 
 export const env = {
   port: Number(process.env.PORT || 4000),
-  databaseUrl: process.env.DATABASE_URL || '',
-  jwtSecret: process.env.JWT_SECRET || '',
+  databaseUrl: process.env.DATABASE_URL || LOCAL_DATABASE_URL,
+  jwtSecret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'local-dev-qtech-secret-16'),
   clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
   timezone: process.env.APP_TIMEZONE || 'Asia/Kolkata',
   nodeEnv: process.env.NODE_ENV || 'development',
