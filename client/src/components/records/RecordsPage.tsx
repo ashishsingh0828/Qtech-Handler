@@ -18,6 +18,7 @@ interface RecordRow {
   position: number;
   serialNo: string | null;
   customerName: string | null;
+  updatedByName?: string | null;
   data: Record<string, string | number | null>;
   derived: Derived;
 }
@@ -123,7 +124,7 @@ export default function RecordsPage() {
       await api(`/api/datasets/${datasetId}/rows/${row.id}`, { method: 'PATCH', body: { version: row.version, updates: { [key]: value } } });
       setCellState((current) => ({ ...current, [stamp]: 'Saved' }));
       queryClient.invalidateQueries({ queryKey: ['rows', datasetId] });
-      toast.push('Saved');
+      toast.push(user ? `Saved by ${user.name}` : 'Saved');
     } catch (error) {
       setCellState((current) => {
         const next = { ...current };
@@ -212,7 +213,10 @@ export default function RecordsPage() {
                       </div>
                     </td>
                     <td className="pin clip" style={{ left: 72 }}>{row.serialNo || '—'}</td>
-                    <td className="pin clip" style={{ left: 212 }}>{row.customerName || '—'}</td>
+                    <td className="pin clip" style={{ left: 212 }}>
+                      <div className="truncate">{row.customerName || '—'}</div>
+                      {row.updatedByName ? <div className="truncate text-[11px] text-muted">{row.updatedByName}</div> : null}
+                    </td>
                     {visible.map((column) => (
                       <td key={column.id} className="clip">
                         {editing && user && canEditColumn(user.role, column) ? (
@@ -279,7 +283,7 @@ export default function RecordsPage() {
           {user && hasPermission(user.role, 'deleteRows') ? <button type="button" className="btn btn-danger" onClick={() => {
             if (!window.confirm(`Delete ${selected.length} rows from this dataset?`)) return;
             Promise.all(list.filter((row) => selected.includes(row.id)).map((row) => api(`/api/datasets/${datasetId}/rows/${row.id}`, { method: 'DELETE' })))
-              .then(() => { setSelected([]); queryClient.invalidateQueries({ queryKey: ['rows', datasetId] }); toast.push('Rows deleted'); })
+              .then(() => { setSelected([]); queryClient.invalidateQueries({ queryKey: ['rows', datasetId] }); toast.push(user ? `Deleted by ${user.name}` : 'Rows deleted'); })
               .catch((error: Error) => toast.push(error.message));
           }}>Delete</button> : null}
           <button type="button" className="btn btn-secondary" onClick={() => downloadExcel(`/api/datasets/${datasetId}/export?group=${group}`, 'selection.xlsx').catch((error: Error) => toast.push(error.message))}>Export</button>

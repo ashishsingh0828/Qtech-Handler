@@ -115,6 +115,7 @@ const STATEMENTS = [
   `ALTER TABLE dataset_rows ADD COLUMN IF NOT EXISTS ack_note TEXT`,
   `ALTER TABLE dataset_rows ADD COLUMN IF NOT EXISTS next_follow_up TIMESTAMPTZ`,
   `ALTER TABLE dataset_rows ADD COLUMN IF NOT EXISTS imported_data JSONB`,
+  `ALTER TABLE dataset_rows ADD COLUMN IF NOT EXISTS updated_by_name TEXT`,
   `CREATE INDEX IF NOT EXISTS dataset_rows_order ON dataset_rows (dataset_id, position)`,
   `CREATE INDEX IF NOT EXISTS dataset_rows_serial ON dataset_rows (dataset_id, serial_no)`,
   `CREATE INDEX IF NOT EXISTS dataset_rows_customer ON dataset_rows (dataset_id, customer_name)`,

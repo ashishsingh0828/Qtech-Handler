@@ -5,7 +5,7 @@ import { requirePermission, requireUser } from '../middleware/auth.ts';
 import { buildCsv, buildWorkbook, parseWorkbook, type ExportCall, type ParsedColumn } from '../lib/excel.ts';
 import { jsonObject } from '../lib/ensureSchema.ts';
 import { asCells, equipmentOf, indexesOf } from '../lib/present.ts';
-import { mergeKey } from '../lib/records.ts';
+import { mergeKey, writeActivity } from '../lib/records.ts';
 import { emit } from '../lib/notify.ts';
 import { todayInZone } from '../../../shared/dates.ts';
 import { env } from '../config/env.ts';
@@ -64,26 +64,28 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 router.delete('/:id', requirePermission('deleteDatasets'), asyncHandler(async (req, res) => {
   assertUuid(req.params.id);
-  if (!req.user) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
+  const actor = req.user;
+  if (!actor) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
   const dataset = await prisma.dataset.findUnique({ where: { id: req.params.id } });
   if (!dataset) throw new HttpError(404, 'Dataset not found.', 'NOT_FOUND');
   await prisma.$transaction(async (tx) => {
-    await tx.activityLog.create({
-      data: {
-        datasetId: dataset.id,
-        userId: req.user?.id,
-        action: 'delete_dataset',
-        changes: jsonObject({ name: dataset.name }),
-      },
+    await writeActivity(tx, {
+      datasetId: dataset.id,
+      rowId: null,
+      userId: actor.id,
+      actorName: actor.name,
+      action: 'delete_dataset',
+      changes: jsonObject({ name: dataset.name }),
     });
     await tx.dataset.delete({ where: { id: dataset.id } });
   });
-  emit('dataset.deleted', dataset.id, null, req.user.id);
+  emit('dataset.deleted', dataset.id, null, actor.id);
   res.json({ ok: true });
 }));
 
 router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req, res) => {
-  if (!req.user) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
+  const actor = req.user;
+  if (!actor) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from([]);
   if (!buffer.length) throw new HttpError(400, 'Upload an Excel workbook.', 'VALIDATION');
   if (buffer.length > MAX_UPLOAD_BYTES) throw new HttpError(400, 'This file is larger than 25 MB.', 'TOO_LARGE');
@@ -222,17 +224,17 @@ router.post('/import', requirePermission('uploadExcel'), asyncHandler(async (req
       where: { id: dataset.id },
       data: { rowCount, columnCount },
     });
-    await tx.activityLog.create({
-      data: {
-        datasetId: dataset.id,
-        userId: req.user?.id,
-        action: 'import',
-        changes: jsonObject({ filename, inserted, updated, duplicates }),
-      },
+    await writeActivity(tx, {
+      datasetId: dataset.id,
+      rowId: null,
+      userId: actor.id,
+      actorName: actor.name,
+      action: 'import',
+      changes: jsonObject({ filename, inserted, updated, duplicates }),
     });
     return { id: dataset.id, name: dataset.name, inserted, updated, duplicates, rowCount, columnCount, groups: parsed.groups.length };
   }, { timeout: 120_000, maxWait: 20_000 });
-  emit('dataset.imported', summary.id, null, req.user.id);
+  emit('dataset.imported', summary.id, null, actor.id);
   res.json({ dataset: summary, today });
 }));
 

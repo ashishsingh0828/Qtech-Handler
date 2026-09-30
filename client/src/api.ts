@@ -1,3 +1,9 @@
+function readableError(message: string, fallback: string): string {
+  const line = message.split('\n').map((part) => part.trim()).find(Boolean) || fallback;
+  if (line.startsWith('Invalid `') || line.includes('invocation') || line.length > 180) return fallback;
+  return line;
+}
+
 export class ApiError extends Error {
   status: number;
   code: string;
@@ -22,7 +28,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const payload = data as { error?: string; code?: string };
-    throw new ApiError(response.status, payload.error || 'Request failed', payload.code || 'ERROR', data as Record<string, unknown>);
+    throw new ApiError(response.status, readableError(payload.error || '', 'Request failed'), payload.code || 'ERROR', data as Record<string, unknown>);
   }
   return data as T;
 }
@@ -56,7 +62,7 @@ export async function uploadWorkbook(file: File, datasetId?: string): Promise<Im
   if (!response.ok) {
     const payload = data as { error?: string; code?: string };
     const fallback = response.status === 413 ? 'This file is larger than 25 MB.' : 'Import failed';
-    throw new ApiError(response.status, payload.error || fallback, payload.code || 'IMPORT', data as Record<string, unknown>);
+    throw new ApiError(response.status, readableError(payload.error || '', fallback), payload.code || 'IMPORT', data as Record<string, unknown>);
   }
   return data as ImportResult;
 }

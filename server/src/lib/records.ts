@@ -68,7 +68,7 @@ async function locked(tx: Tx, datasetId: string, rowId: string, version: number,
   return { row: stored, presented: presentRow(stored, today) };
 }
 
-async function writeActivity(tx: Tx, input: {
+export async function writeActivity(tx: Tx, input: {
   datasetId: string;
   rowId: string | null;
   userId: string;
@@ -81,15 +81,15 @@ async function writeActivity(tx: Tx, input: {
 }): Promise<void> {
   await tx.activityLog.create({
     data: {
-      datasetId: input.datasetId,
-      rowId: input.rowId,
-      userId: input.userId,
-      actorName: input.actorName || null,
       action: input.action,
+      actorName: input.actorName || null,
       columnKey: input.columnKey || null,
       fromValue: input.fromValue ?? null,
       toValue: input.toValue ?? null,
       changes: input.changes,
+      ...(input.datasetId ? { dataset: { connect: { id: input.datasetId } } } : {}),
+      ...(input.rowId ? { row: { connect: { id: input.rowId } } } : {}),
+      ...(input.userId ? { user: { connect: { id: input.userId } } } : {}),
     },
   });
 }
@@ -125,7 +125,7 @@ export async function patchRecord(input: {
     const next = await tx.row.update({
       where: { id: row.id },
       data: {
-        version: { increment: 1 },
+        version: { increment: 1 }, updatedByName: input.user.name,
         data: jsonObject(data),
         serialNo: indexed.serialNo,
         customerName: indexed.customerName,
@@ -182,7 +182,7 @@ export async function validateRecord(input: {
     const next = await tx.row.update({
       where: { id: row.id },
         data: {
-        version: { increment: 1 },
+        version: { increment: 1 }, updatedByName: input.user.name,
         data: jsonObject(data),
         validatedById: input.user.id,
         validatedAt: new Date(),
@@ -247,7 +247,7 @@ export async function verifyRecord(input: {
     const next = await tx.row.update({
       where: { id: row.id },
       data: {
-        version: { increment: 1 },
+        version: { increment: 1 }, updatedByName: input.user.name,
         data: jsonObject(data),
         verifiedById: input.action === 'verify' ? input.user.id : null,
         verifiedAt: input.action === 'verify' ? new Date() : null,
@@ -351,7 +351,7 @@ export async function amcRecord(input: {
     const next = await tx.row.update({
       where: { id: row.id },
         data: {
-        version: { increment: 1 },
+        version: { increment: 1 }, updatedByName: input.user.name,
         data: jsonObject(data),
         amcStatus: input.action === 'reset' ? null : nextStatus,
         proposalSentAt: data.proposal_sent_at ? new Date(String(data.proposal_sent_at)) : row.proposalSentAt,
@@ -401,7 +401,7 @@ export async function assignRecord(input: {
     const next = await tx.row.update({
       where: { id: row.id },
       data: {
-        version: { increment: 1 },
+        version: { increment: 1 }, updatedByName: input.user.name,
         assignedValidatorId: input.validatorId === undefined ? row.assignedValidatorId : input.validatorId,
         assignedServiceId: input.serviceId === undefined ? row.assignedServiceId : input.serviceId,
       },
@@ -459,7 +459,7 @@ export async function markPms(input: {
     }
     const next = await tx.row.update({
       where: { id: row.id },
-      data: { version: { increment: 1 }, data: jsonObject(data) },
+      data: { version: { increment: 1 }, updatedByName: input.user.name, data: jsonObject(data) },
     });
     await writeActivity(tx, {
       datasetId: input.datasetId,
@@ -489,9 +489,9 @@ export async function logCall(input: {
   const saved = await prisma.$transaction(async (tx) => {
     const { row } = await locked(tx, input.datasetId, input.rowId, input.version, input.today);
     await tx.serviceCall.create({
-      data: { rowId: row.id, datasetId: input.datasetId, type: input.type, description, status: 'Open' },
+      data: { row: { connect: { id: row.id } }, datasetId: input.datasetId, type: input.type, description, status: 'Open' },
     });
-    const next = await tx.row.update({ where: { id: row.id }, data: { version: { increment: 1 } } });
+    const next = await tx.row.update({ where: { id: row.id }, data: { version: { increment: 1 }, updatedByName: input.user.name } });
     await writeActivity(tx, {
       datasetId: input.datasetId,
       rowId: row.id,
@@ -539,7 +539,7 @@ export async function resolveCall(input: {
         note: (input.note || '').trim() || null,
       },
     });
-    const next = await tx.row.update({ where: { id: row.id }, data: { version: { increment: 1 } } });
+    const next = await tx.row.update({ where: { id: row.id }, data: { version: { increment: 1 }, updatedByName: input.user.name } });
     await writeActivity(tx, {
       datasetId: input.datasetId,
       rowId: row.id,
@@ -587,7 +587,7 @@ export async function revertRecord(input: {
     const next = await tx.row.update({
       where: { id: row.id },
       data: {
-        version: { increment: 1 },
+        version: { increment: 1 }, updatedByName: input.user.name,
         data: jsonObject(nextData),
         serialNo: indexed.serialNo,
         customerName: indexed.customerName,

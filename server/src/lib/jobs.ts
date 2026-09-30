@@ -34,12 +34,12 @@ export async function runDailyJobs(now = new Date()): Promise<void> {
         if (await claim(`validation:${row.id}:${today}`)) {
           await prisma.notification.create({
             data: {
-              userId: row.assignedValidatorId,
               type: 'validation_overdue',
               message: `${label} is overdue for validation.`,
               rowId: row.id,
-              datasetId: dataset.id,
               priority: 'HIGH',
+              user: { connect: { id: row.assignedValidatorId } },
+              dataset: { connect: { id: dataset.id } },
             },
           });
         }
@@ -50,12 +50,12 @@ export async function runDailyJobs(now = new Date()): Promise<void> {
           for (const userId of serviceTargets) {
             await prisma.notification.create({
               data: {
-                userId,
                 type: 'pms_due',
                 message: derived.pmsOverdue ? `${label} has an overdue PMS visit.` : `${label} has a PMS visit within 3 days.`,
                 rowId: row.id,
-                datasetId: dataset.id,
                 priority: derived.pmsOverdue ? 'HIGH' : 'NORMAL',
+                user: { connect: { id: userId } },
+                dataset: { connect: { id: dataset.id } },
               },
             });
           }
@@ -65,12 +65,12 @@ export async function runDailyJobs(now = new Date()): Promise<void> {
         for (const userId of serviceTargets) {
           await prisma.notification.create({
             data: {
-              userId,
               type: 'followup_due',
               message: `${label} has a follow-up due today.`,
               rowId: row.id,
-              datasetId: dataset.id,
               priority: 'NORMAL',
+              user: { connect: { id: userId } },
+              dataset: { connect: { id: dataset.id } },
             },
           });
         }
@@ -79,12 +79,12 @@ export async function runDailyJobs(now = new Date()): Promise<void> {
         for (const userId of serviceTargets) {
           await prisma.notification.create({
             data: {
-              userId,
               type: 'warranty_expiring',
               message: `${label} warranty expires within 30 days.`,
               rowId: row.id,
-              datasetId: dataset.id,
               priority: 'NORMAL',
+              user: { connect: { id: userId } },
+              dataset: { connect: { id: dataset.id } },
             },
           });
         }
@@ -94,11 +94,11 @@ export async function runDailyJobs(now = new Date()): Promise<void> {
       for (const manager of managers) {
         await prisma.notification.create({
           data: {
-            userId: manager.id,
             type: 'validation_digest',
             message: `${dataset.name}: ${overdueValidation} validation${overdueValidation === 1 ? '' : 's'} overdue.`,
-            datasetId: dataset.id,
             priority: 'HIGH',
+            user: { connect: { id: manager.id } },
+            dataset: { connect: { id: dataset.id } },
           },
         });
       }

@@ -29,6 +29,7 @@ export interface RecordDTO {
   amcStatus: string | null;
   assignedValidatorId: string | null;
   assignedServiceId: string | null;
+  updatedByName: string | null;
   updatedAt: string;
   data: CellMap;
   derived: Derived;
@@ -55,6 +56,7 @@ export interface StoredRow {
   importedData?: Prisma.JsonValue | null;
   assignedValidatorId: string | null;
   assignedServiceId: string | null;
+  updatedByName?: string | null;
   updatedAt: Date;
 }
 
@@ -87,6 +89,7 @@ export function presentRow(row: StoredRow, today: string): RecordDTO {
     amcStatus: derived.amcStatus,
     assignedValidatorId: row.assignedValidatorId,
     assignedServiceId: row.assignedServiceId,
+    updatedByName: row.updatedByName || null,
     updatedAt: row.updatedAt.toISOString(),
     data,
     derived,

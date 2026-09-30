@@ -37,13 +37,13 @@ export async function notifyUsers(tx: Tx, input: {
     }
     await tx.notification.create({
       data: {
-        userId,
         actorId: input.actorId,
         type: input.type,
         message: input.message,
         rowId: input.rowId || null,
-        datasetId: input.datasetId || null,
         priority: input.priority || 'NORMAL',
+        user: { connect: { id: userId } },
+        ...(input.datasetId ? { dataset: { connect: { id: input.datasetId } } } : {}),
       },
     });
   }

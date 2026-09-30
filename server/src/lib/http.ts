@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 
 export class HttpError extends Error {
   status: number;
@@ -37,7 +38,10 @@ export function errorMiddleware(error: unknown, req: Request, res: Response, _ne
     res.status(error.status).json({ error: error.message, code: error.code, ...error.details });
     return;
   }
-  const message = error instanceof Error ? error.message : 'Unexpected error';
+  console.error(error);
+  const raw = error instanceof Error ? error.message.split('\n').map((line) => line.trim()).find(Boolean) || 'Unexpected error' : 'Unexpected error';
+  const prismaError = error instanceof Prisma.PrismaClientValidationError || error instanceof Prisma.PrismaClientKnownRequestError;
+  const message = prismaError || raw.startsWith('Invalid `') || raw.length > 180 ? 'That change could not be saved.' : raw;
   res.status(500).json({ error: message, code: 'INTERNAL' });
 }
 

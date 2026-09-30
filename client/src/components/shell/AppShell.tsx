@@ -83,6 +83,9 @@ export default function AppShell() {
       setLive(true);
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['activity'] });
+      queryClient.invalidateQueries({ queryKey: ['record'] });
+      queryClient.invalidateQueries({ queryKey: ['datasets'] });
       if (payload.datasetId) queryClient.invalidateQueries({ queryKey: ['rows', payload.datasetId] });
       else queryClient.invalidateQueries({ queryKey: ['rows'] });
     };

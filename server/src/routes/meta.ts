@@ -10,6 +10,16 @@ import { pmsOverdueSql } from '../lib/filters.ts';
 
 const router = Router();
 
+function activitySummary(entry: { columnKey: string | null; fromValue: string | null; toValue: string | null; changes: unknown }): string {
+  if (entry.columnKey) return `${entry.columnKey}: ${entry.fromValue || '—'} → ${entry.toValue || '—'}`;
+  if (entry.changes && typeof entry.changes === 'object' && !Array.isArray(entry.changes)) {
+    const record = entry.changes as Record<string, unknown>;
+    const label = record.customerName ?? record.name;
+    if (typeof label === 'string' && label) return label;
+  }
+  return '';
+}
+
 router.get('/events', requireUser, (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -78,7 +88,8 @@ router.get('/activity', requireUser, asyncHandler(async (req, res) => {
       datasetName: entry.dataset?.name || '',
       rowId: entry.rowId,
       createdAt: entry.createdAt.toISOString(),
-      userName: entry.user?.name || 'System',
+      userName: entry.user?.name || entry.actorName || 'System',
+      summary: activitySummary(entry),
     })),
   });
 }));
@@ -164,7 +175,7 @@ router.get('/dashboard', requireUser, asyncHandler(async (req, res) => {
       action: entry.action,
       rowId: entry.rowId,
       createdAt: entry.createdAt.toISOString(),
-      userName: entry.user?.name || 'System',
+      userName: entry.user?.name || entry.actorName || 'System',
       changes: entry.changes,
     })),
     workload,

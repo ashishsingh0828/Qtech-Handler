@@ -71,6 +71,7 @@ export default function RecordDrawer({ datasetId, rowId, columns, onClose }: {
           <div className="border-b border-hairline px-5 py-4">
             <Dialog.Title className="m-0 truncate text-[18px]">{row?.customerName || 'Record'}</Dialog.Title>
             <p className="mt-1 truncate text-[13px] text-muted">{String(row?.data.equipment_name || 'Equipment')} · {row?.serialNo || 'No serial'}</p>
+            {detail.data?.activity[0] ? <p className="mt-1 truncate text-[12px] text-muted">Last change by {detail.data.activity[0].userName}</p> : null}
             <div className="mt-3 flex flex-wrap gap-2">
               <StatusPill tone={row?.derived.warrantyTone}>{row?.derived.warrantyStatus || '—'}</StatusPill>
               <StatusPill tone={row?.derived.amcTone}>{row?.derived.amcStatus || '—'}</StatusPill>

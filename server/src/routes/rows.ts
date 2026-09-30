@@ -8,7 +8,7 @@ import { addDays, todayInZone } from '../../../shared/dates.ts';
 import { chipSql, countsFrom, pmsOverdueSql, type MetricCounts } from '../lib/filters.ts';
 import { asCells, presentRow } from '../lib/present.ts';
 import { jsonObject } from '../lib/ensureSchema.ts';
-import { loadColumns, amcRecord, assignRecord, logCall, markPms, patchRecord, resolveCall, revertRecord, validateRecord, verifyRecord } from '../lib/records.ts';
+import { loadColumns, amcRecord, assignRecord, logCall, markPms, patchRecord, resolveCall, revertRecord, validateRecord, verifyRecord, writeActivity } from '../lib/records.ts';
 import { emit } from '../lib/notify.ts';
 import { hasPermission } from '../../../shared/permissions.ts';
 
@@ -130,7 +130,8 @@ router.get('/', asyncHandler(async (req, res) => {
 
 router.post('/', requirePermission('insertRows'), asyncHandler(async (req, res) => {
   assertUuid(String(req.params.datasetId || ''));
-  if (!req.user) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
+  const actor = req.user;
+  if (!actor) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
   const today = todayInZone(env.timezone);
   const created = await prisma.$transaction(async (tx) => {
     const dataset = await tx.dataset.findUnique({ where: { id: req.params.datasetId } });
@@ -140,12 +141,17 @@ router.post('/', requirePermission('insertRows'), asyncHandler(async (req, res) 
       data: { datasetId: dataset.id, position: 1, version: 1, data: {} },
     });
     await tx.dataset.update({ where: { id: dataset.id }, data: { rowCount: { increment: 1 } } });
-    await tx.activityLog.create({
-      data: { datasetId: dataset.id, rowId: row.id, userId: req.user?.id, action: 'insert_row', changes: {} },
+    await writeActivity(tx, {
+      datasetId: dataset.id,
+      rowId: row.id,
+      userId: actor.id,
+      actorName: actor.name,
+      action: 'insert_row',
+      changes: {},
     });
     return row;
   });
-  emit('row.inserted', created.datasetId, created.id, req.user.id);
+  emit('row.inserted', created.datasetId, created.id, actor.id);
   res.status(201).json({ row: presentRow(created, today) });
 }));
 
@@ -176,7 +182,7 @@ router.get('/:rowId', asyncHandler(async (req, res) => {
       action: entry.action,
       changes: entry.changes,
       createdAt: entry.createdAt.toISOString(),
-      userName: entry.user?.name || 'System',
+      userName: entry.user?.name || entry.actorName || 'System',
     })),
   });
 }));
@@ -219,24 +225,31 @@ router.post('/:rowId/revert', asyncHandler(async (req, res) => {
 
 router.delete('/:rowId', requirePermission('deleteRows'), asyncHandler(async (req, res) => {
   assertUuid(String(req.params.datasetId || ''));
-  if (!req.user) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
+  const actor = req.user;
+  if (!actor) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
   await prisma.$transaction(async (tx) => {
     const row = await tx.row.findFirst({ where: { id: req.params.rowId, datasetId: req.params.datasetId } });
     if (!row) throw new HttpError(404, 'Record not found.', 'NOT_FOUND');
     await tx.activityLog.updateMany({ where: { rowId: row.id }, data: { rowId: null } });
     await tx.row.delete({ where: { id: row.id } });
     await tx.dataset.update({ where: { id: row.datasetId }, data: { rowCount: { decrement: 1 } } });
-    await tx.activityLog.create({
-      data: { datasetId: row.datasetId, userId: req.user?.id, action: 'delete_row', changes: { position: row.position } },
+    await writeActivity(tx, {
+      datasetId: row.datasetId,
+      rowId: null,
+      userId: actor.id,
+      actorName: actor.name,
+      action: 'delete_row',
+      changes: jsonObject({ position: row.position, customerName: row.customerName, serialNo: row.serialNo }),
     });
   });
-  emit('row.deleted', String(req.params.datasetId), req.params.rowId, req.user.id);
+  emit('row.deleted', String(req.params.datasetId), req.params.rowId, actor.id);
   res.json({ ok: true });
 }));
 
 router.post('/:rowId/duplicate', requirePermission('duplicateRows'), asyncHandler(async (req, res) => {
   assertUuid(String(req.params.datasetId || ''));
-  if (!req.user) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
+  const actor = req.user;
+  if (!actor) throw new HttpError(401, 'Sign in required.', 'UNAUTHORIZED');
   const today = todayInZone(env.timezone);
   const created = await prisma.$transaction(async (tx) => {
     const row = await tx.row.findFirst({ where: { id: req.params.rowId, datasetId: req.params.datasetId } });
@@ -258,12 +271,17 @@ router.post('/:rowId/duplicate', requirePermission('duplicateRows'), asyncHandle
       },
     });
     await tx.dataset.update({ where: { id: row.datasetId }, data: { rowCount: { increment: 1 } } });
-    await tx.activityLog.create({
-      data: { datasetId: row.datasetId, rowId: copy.id, userId: req.user?.id, action: 'duplicate_row', changes: { sourceId: row.id } },
+    await writeActivity(tx, {
+      datasetId: row.datasetId,
+      rowId: copy.id,
+      userId: actor.id,
+      actorName: actor.name,
+      action: 'duplicate_row',
+      changes: jsonObject({ sourceId: row.id, customerName: row.customerName }),
     });
     return copy;
   });
-  emit('row.inserted', created.datasetId, created.id, req.user.id);
+  emit('row.inserted', created.datasetId, created.id, actor.id);
   res.status(201).json({ row: presentRow(created, today) });
 }));
 

@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api';
 import { useOutletDataset } from '../shell/AppShell';
-import { PageHeader } from '../ui';
+import { EmptyState, PageHeader } from '../ui';
 
-interface Entry { id: string; action: string; userName: string; datasetName: string; createdAt: string }
+interface Entry { id: string; action: string; userName: string; summary?: string; datasetName: string; createdAt: string }
 
 export default function ActivityPage() {
   const { datasetId } = useOutletDataset();
@@ -17,11 +17,13 @@ export default function ActivityPage() {
       <ol className="space-y-2">
         {(query.data?.activity || []).map((entry) => (
           <li key={entry.id} className="card min-w-0">
-            <div className="truncate text-[14px]"><span className="font-medium">{entry.userName}</span> {entry.action}</div>
+            <div className="truncate text-[14px]"><span className="font-medium">{entry.userName}</span> {entry.action}{entry.summary ? ` · ${entry.summary}` : ''}</div>
             <div className="truncate text-[12px] text-muted">{entry.datasetName} · {new Date(entry.createdAt).toLocaleString()}</div>
           </li>
         ))}
       </ol>
+      {query.isError ? <EmptyState title="Activity could not be loaded." /> : null}
+      {query.data && !query.data.activity.length ? <EmptyState title="No changes yet." /> : null}
     </div>
   );
 }

@@ -92,6 +92,7 @@ model Row {
   assignedValidator   User?         @relation("AssignedValidator", fields: [assignedValidatorId], references: [id])
   assignedServiceId   String?       @map("assigned_service_id") @db.Uuid
   assignedService     User?         @relation("AssignedService", fields: [assignedServiceId], references: [id])
+  updatedByName       String?       @map("updated_by_name")
   createdAt           DateTime      @default(now()) @map("created_at")
   updatedAt           DateTime      @updatedAt @map("updated_at")
   calls               ServiceCall[]
