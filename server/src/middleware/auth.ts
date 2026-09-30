@@ -26,17 +26,26 @@ export function signSession(user: AuthUser): string {
   return jwt.sign({ sub: user.id, role: user.role }, env.jwtSecret, { expiresIn: '8h' });
 }
 
-export function setSession(res: Response, user: AuthUser): void {
+export function sessionIsSecure(req: Request): boolean {
+  if (process.env.COOKIE_SECURE === 'true') return true;
+  if (process.env.COOKIE_SECURE === 'false') return false;
+  const forwarded = req.headers['x-forwarded-proto'];
+  const proto = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  return proto === 'https' || req.secure;
+}
+
+export function setSession(res: Response, user: AuthUser, secure = env.cookieSecure): void {
   res.cookie(COOKIE, signSession(user), {
     httpOnly: true,
     sameSite: 'lax',
-    secure: env.cookieSecure,
+    secure,
+    path: '/',
     maxAge: 8 * 60 * 60 * 1000,
   });
 }
 
-export function clearSession(res: Response): void {
-  res.clearCookie(COOKIE, { httpOnly: true, sameSite: 'lax', secure: env.cookieSecure });
+export function clearSession(res: Response, secure = env.cookieSecure): void {
+  res.clearCookie(COOKIE, { httpOnly: true, sameSite: 'lax', secure, path: '/' });
 }
 
 export async function attachUser(req: Request, res: Response, next: NextFunction): Promise<void> {

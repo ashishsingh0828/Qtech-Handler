@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.ts';
 import { asyncHandler, HttpError } from '../lib/http.ts';
-import { clearSession, requireUser, setSession, type AuthUser } from '../middleware/auth.ts';
+import { clearSession, requireUser, sessionIsSecure, setSession, type AuthUser } from '../middleware/auth.ts';
 import { normalizeRole } from '../../../shared/permissions.ts';
 import { PRESET_USERS } from '../../../shared/presets.ts';
 import { bootstrapPresetUsers } from '../bootstrap.ts';
@@ -41,12 +41,28 @@ router.post('/login', asyncHandler(async (req, res) => {
   }
   const auth: AuthUser = { id: user.id, email: user.email, name: user.name, role };
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  setSession(res, auth);
+  setSession(res, auth, sessionIsSecure(req));
   res.json({ user: publicUser(auth) });
 }));
 
-router.post('/logout', (_req, res) => {
-  clearSession(res);
+router.post('/enter', asyncHandler(async (req, res) => {
+  const role = normalizeRole(req.body?.role);
+  const preset = PRESET_USERS.find((item) => item.role === role);
+  if (!preset) throw new HttpError(400, 'Choose Admin, Manager, Validator, or Service.', 'VALIDATION');
+  let user = await prisma.user.findUnique({ where: { email: preset.email } });
+  if (!user || !user.isActive || normalizeRole(user.role) !== preset.role) {
+    await bootstrapPresetUsers();
+    user = await prisma.user.findUnique({ where: { email: preset.email } });
+  }
+  if (!user || !user.isActive) throw new HttpError(503, 'That workspace is not ready yet.', 'UNAVAILABLE');
+  const auth: AuthUser = { id: user.id, email: user.email, name: user.name, role: preset.role };
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+  setSession(res, auth, sessionIsSecure(req));
+  res.json({ user: publicUser(auth) });
+}));
+
+router.post('/logout', (req, res) => {
+  clearSession(res, sessionIsSecure(req));
   res.json({ ok: true });
 });
 
