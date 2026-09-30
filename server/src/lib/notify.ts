@@ -1,0 +1,54 @@
+import type { Prisma } from '@prisma/client';
+import { publish } from './events.ts';
+
+type Tx = Prisma.TransactionClient;
+
+export async function userIdsByRole(tx: Tx, roles: string[]): Promise<string[]> {
+  const users = await tx.user.findMany({
+    where: { role: { in: roles }, isActive: true },
+    select: { id: true },
+  });
+  return users.map((user) => user.id);
+}
+
+export async function notifyUsers(tx: Tx, input: {
+  userIds: string[];
+  actorId: string;
+  type: string;
+  message: string;
+  rowId?: string | null;
+  datasetId?: string | null;
+  priority?: 'NORMAL' | 'HIGH';
+}): Promise<void> {
+  const since = new Date(Date.now() - 60_000);
+  const unique = [...new Set(input.userIds)].filter((id) => id && id !== input.actorId);
+  for (const userId of unique) {
+    if (input.rowId) {
+      const recent = await tx.notification.findFirst({
+        where: {
+          userId,
+          actorId: input.actorId,
+          rowId: input.rowId,
+          type: input.type,
+          createdAt: { gte: since },
+        },
+      });
+      if (recent) continue;
+    }
+    await tx.notification.create({
+      data: {
+        userId,
+        actorId: input.actorId,
+        type: input.type,
+        message: input.message,
+        rowId: input.rowId || null,
+        datasetId: input.datasetId || null,
+        priority: input.priority || 'NORMAL',
+      },
+    });
+  }
+}
+
+export function emit(type: string, datasetId: string | null, rowId: string | null, actorId: string): void {
+  publish({ type, datasetId, rowId, actorId });
+}

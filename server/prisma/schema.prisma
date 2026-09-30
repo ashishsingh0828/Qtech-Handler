@@ -1,0 +1,158 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                    String         @id @default(uuid()) @db.Uuid
+  email                 String         @unique
+  passwordHash          String         @map("password_hash")
+  name                  String
+  role                  String
+  isActive              Boolean        @default(true) @map("active")
+  lastLoginAt           DateTime?      @map("last_login_at")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
+  datasets              Dataset[]      @relation("DatasetCreator")
+  validatedRows         Row[]          @relation("ValidatedBy")
+  verifiedRows          Row[]          @relation("VerifiedBy")
+  assignedValidatorRows Row[]          @relation("AssignedValidator")
+  assignedServiceRows   Row[]          @relation("AssignedService")
+  activity              ActivityLog[]
+  notifications         Notification[]
+  resolvedCalls         ServiceCall[]  @relation("ResolvedBy")
+
+  @@map("users")
+}
+
+model Dataset {
+  id           String             @id @default(uuid()) @db.Uuid
+  name         String
+  rowCount     Int                @default(0) @map("row_count")
+  columnCount  Int                @default(0) @map("column_count")
+  createdById  String?            @map("created_by") @db.Uuid
+  createdBy    User?              @relation("DatasetCreator", fields: [createdById], references: [id])
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
+  columns      ColumnDefinition[]
+  rows         Row[]
+  activity     ActivityLog[]
+  notifications Notification[]
+
+  @@map("datasets")
+}
+
+model ColumnDefinition {
+  id           String  @id @default(uuid()) @db.Uuid
+  datasetId    String  @map("dataset_id") @db.Uuid
+  dataset      Dataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  key          String
+  label        String
+  groupKey     String  @map("group_key")
+  semanticTag  String? @map("semantic_tag")
+  dataType     String  @map("data_type")
+  displayOrder Int     @map("display_order")
+  isSystem     Boolean @default(false) @map("is_system")
+
+  @@unique([datasetId, key])
+  @@index([datasetId, displayOrder])
+  @@map("column_definitions")
+}
+
+model Row {
+  id                  String        @id @default(uuid()) @db.Uuid
+  datasetId           String        @map("dataset_id") @db.Uuid
+  dataset             Dataset       @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  version             Int           @default(1)
+  position            Int           @default(0)
+  serialNo            String?       @map("serial_no")
+  customerName        String?       @map("customer_name")
+  data                Json          @default("{}")
+  isDuplicateSuspect  Boolean       @default(false) @map("is_duplicate_suspect")
+  validatedById       String?       @map("validated_by_id") @db.Uuid
+  validatedBy         User?         @relation("ValidatedBy", fields: [validatedById], references: [id])
+  validatedAt         DateTime?     @map("validated_at")
+  verifiedById        String?       @map("verified_by_id") @db.Uuid
+  verifiedBy          User?         @relation("VerifiedBy", fields: [verifiedById], references: [id])
+  verifiedAt          DateTime?     @map("verified_at")
+  amcStatus           String?       @map("amc_status")
+  assignedValidatorId String?       @map("assigned_validator_id") @db.Uuid
+  assignedValidator   User?         @relation("AssignedValidator", fields: [assignedValidatorId], references: [id])
+  assignedServiceId   String?       @map("assigned_service_id") @db.Uuid
+  assignedService     User?         @relation("AssignedService", fields: [assignedServiceId], references: [id])
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  calls               ServiceCall[]
+  activity            ActivityLog[]
+
+  @@index([datasetId, serialNo])
+  @@index([datasetId, customerName])
+  @@index([datasetId, position])
+  @@map("dataset_rows")
+}
+
+model ServiceCall {
+  id           String    @id @default(uuid()) @db.Uuid
+  rowId        String    @map("row_id") @db.Uuid
+  row          Row       @relation(fields: [rowId], references: [id], onDelete: Cascade)
+  type         String
+  description  String
+  reportedAt   DateTime  @default(now()) @map("reported_at")
+  status       String    @default("Open")
+  resolvedAt   DateTime? @map("resolved_at")
+  resolvedById String?   @map("resolved_by") @db.Uuid
+  resolvedBy   User?     @relation("ResolvedBy", fields: [resolvedById], references: [id])
+  note         String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([rowId, status])
+  @@map("service_calls")
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  datasetId String?  @map("dataset_id") @db.Uuid
+  dataset   Dataset? @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  rowId     String?  @map("row_id") @db.Uuid
+  row       Row?     @relation(fields: [rowId], references: [id], onDelete: SetNull)
+  userId    String?  @map("actor_id") @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  changes   Json?    @map("detail")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([datasetId, createdAt])
+  @@index([rowId, createdAt])
+  @@map("audit_log")
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  rowId     String?  @map("row_id") @db.Uuid
+  datasetId String?  @map("dataset_id") @db.Uuid
+  dataset   Dataset? @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  priority  String   @default("NORMAL")
+  isRead    Boolean  @default(false) @map("is_read")
+  actorId   String?  @map("actor_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([actorId, rowId, createdAt])
+  @@map("notifications")
+}
+
+model JobMark {
+  id        String   @id @default(uuid()) @db.Uuid
+  dedupeKey String   @unique @map("dedupe_key")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("job_marks")
+}
